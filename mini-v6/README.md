@@ -1,56 +1,76 @@
-# Claude Code Mini v5
+ï»¿# Claude Code Mini v6
 
-»ùÓÚ Anthropic Claude Code CLI ÄæÏò¹¤³ÌµÄ²Ã¼ô°æ±¾ v5¡£
+åŸºäº Anthropic Claude Code CLI é€†å‘å·¥ç¨‹çš„è£å‰ªç‰ˆæœ¬ v6ã€‚
 
-## ĞÂÔö¹¦ÄÜ (v5)
+## æ–°å¢åŠŸèƒ½ (v6)
 
-### MCP Ğ­ÒéÖ§³Ö
-- Ö§³ÖÁ¬½Óµ½±¾µØ stdio-based MCP ·şÎñÆ÷
-- ÅäÖÃÎÄ¼ş: `~/.claude-code-mini/mcp.json`
-- Ö§³Ö multiple MCP servers
-- Ã¿¸ö MCP server µÄ tools ×Ô¶¯×¢²áÎª `mcp__<server>__<tool>` ¸ñÊ½
+### æ’ä»¶ç”Ÿæ€ç³»ç»Ÿ
+- **æ’ä»¶ç®¡ç†**: `/plugin install`ã€`/plugin uninstall`ã€`/plugin list`ã€`/plugin enable/disable`
+- **å¸‚åœºæ”¯æŒ**: `/plugin marketplace add/remove/list/update`
+- **æ’ä»¶å‘ç°**: è‡ªåŠ¨åŠ è½½ `~/.claude-code-mini/plugins/` å’Œ `.codex/plugins/` ä¸‹çš„æ’ä»¶
+- **æ’ä»¶æ¸…å•**: `.codex-plugin/plugin.json` æ ¼å¼ï¼Œæ”¯æŒ commandsã€skillsã€mcpServers
+- **æŠ€èƒ½å‘ç°**: æ’ä»¶å¯é€šè¿‡ skills å­—æ®µè´¡çŒ® SKILL.md æ–‡ä»¶
 
-### ÅäÖÃ¹ÜÀí
-- ³Ö¾Ã»¯ÅäÖÃ: `~/.claude-code-mini/config.json`
-- Ö§³Ö×Ö¶Î: model, maxTurns, permissionMode, theme, autoCompact
-- REPL `/config` ÃüÁî²é¿´µ±Ç°ÅäÖÃ
+### Skill ç”Ÿæ€
+- **Skill å•†åº—**: `/skill-store list/search/install/uninstall`
+- **Skill æœç´¢**: `/skill-search start/stop/status` - åŸºäº TF çš„è‡ªåŠ¨æŠ€èƒ½åŒ¹é…
+- **å¤šæºåŠ è½½**: project `.agents/skills/`ã€user `~/.claude-code-mini/skills/`ã€plugin skills
+- **ç¼“å­˜æ”¯æŒ**: Skill å•†åº—ç»“æœæœ¬åœ°ç¼“å­˜ï¼Œç¦»çº¿å¯ç”¨
 
-### ×Ô¶¯¶Ô»°Ñ¹Ëõ
-- ¼à²â token ÓÃÁ¿£¬³¬¹ıãĞÖµ×Ô¶¯Ñ¹Ëõ
-- ±£Áô×î½ü N ÂÖ¶Ô»° + Ê×ÌõÉÏÏÂÎÄÏûÏ¢
-- Éú³ÉÑ¹ËõÕªÒª×¢Èë¶Ô»°
+## ç‰ˆæœ¬æ¼”è¿›
 
-### API ÖØÊÔ»úÖÆ
-- Ö¸ÊıÍË±ÜÖØÊÔ
-- ×Ô¶¯Ê¶±ğ¿ÉÖØÊÔ´íÎó (rate limit, timeout, 429, 503, ÍøÂç´íÎó)
-- ¿ÉÅäÖÃ×î´óÖØÊÔ´ÎÊıºÍÑÓ³Ù
+| æŒ‡æ ‡ | v1 | v2 | v3 | v4 | v5 | v6 |
+|------|----|----|----|----|----|----|
+| TS æ–‡ä»¶ | 49 | 68 | 79 | 85 | 89 | 95 |
+| æµ‹è¯•æ•° | 0 | 130 | 147 | 161 | 213 | 213+ |
+| å·¥å…·æ•° | 6 | 8 | 13 | 15 | 15+ | 15+ |
+| REPL | - | - | - | - | - | - |
+| æƒé™ç³»ç»Ÿ | - | - | - | - | - | - |
+| Plan æ¨¡å¼ | - | - | - | - | - | - |
+| MCP | - | - | - | - | - | - |
+| é‡è¯• | - | - | - | - | - | - |
+| å‹ç¼© | - | - | - | - | - | - |
+| é…ç½® | - | - | - | - | - | - |
+| æ’ä»¶å¸‚åœº | - | - | - | - | - | - |
+| Skill å•†åº— | - | - | - | - | - | - |
+| Skill æœç´¢ | - | - | - | - | - | - |
 
-## °æ±¾Ñİ½ø
-
-| Ö¸±ê | v1 | v2 | v3 | v4 | v5 |
-|------|----|----|----|----|----|
-| TS ÎÄ¼ş | 49 | 68 | 79 | 85 | 89 |
-| ²âÊÔÊı | 0 | 130 | 147 | 161 | 213 |
-| ¹¤¾ßÊı | 6 | 8 | 13 | 15 | 15+ |
-| REPL | ? | ? | ? | ? | ? |
-| È¨ÏŞÏµÍ³ | ? | ? | ? | ? | ? |
-| Plan Ä£Ê½ | ? | ? | ? | ? | ? |
-| MCP | ? | ? | ? | ? | ? |
-| ÖØÊÔ | ? | ? | ? | ? | ? |
-| Ñ¹Ëõ | ? | ? | ? | ? | ? |
-| ÅäÖÃ | ? | ? | ? | ? | ? |
-
-## ÃüÁî
+## å‘½ä»¤
 
 ```bash
 bun install
-bun run dev          # Æô¶¯ REPL
-bun run build        # ¹¹½¨
-bun run typecheck    # ÀàĞÍ¼ì²é
-bun test             # ÔËĞĞ²âÊÔ
+bun run dev          # å¯åŠ¨ REPL
+bun run build        # æ„å»º
+bun run typecheck    # ç±»å‹æ£€æŸ¥
+bun test             # è¿è¡Œæµ‹è¯•
 ```
 
-## MCP ÅäÖÃÊ¾Àı
+## REPL å‘½ä»¤
+
+```
+/help /exit /clear /tools /config
+/plugin [install|uninstall|list|enable|disable|marketplace]
+/skill-store [list|search|install|uninstall|installed]
+/skill-search [start|stop|status]
+```
+
+## æ’ä»¶æ¸…å•ç¤ºä¾‹
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "My custom plugin",
+  "skills": [
+    { "name": "my-skill", "description": "A skill", "path": "skills/SKILL.md" }
+  ],
+  "mcpServers": [
+    { "name": "my-server", "command": "node", "args": ["server.js"] }
+  ]
+}
+```
+
+## MCP é…ç½®ç¤ºä¾‹
 
 ```json
 {

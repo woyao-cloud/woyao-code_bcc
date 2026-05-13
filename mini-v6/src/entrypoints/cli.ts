@@ -194,14 +194,14 @@ async function runREPL(_config: unknown) {
         continue
       }
       if (cmd === 'skill-store' || cmd === 'ss') {
-        const args = trimmed.slice(trimmed.indexOf(' ') + 1).trim() || ''
-        const result = await handleSkillStoreCommand(args)
+        const subArgs = trimmed.slice(trimmed.indexOf(' ') + 1).trim() || ''
+        const result = await handleSkillStoreCommand(subArgs)
         process.stderr.write(result + '\n')
         continue
       }
       if (cmd === 'skill-search') {
-        const args = trimmed.slice(trimmed.indexOf(' ') + 1).trim() || ''
-        const result = handleSkillSearchCommand(args)
+        const subArgs = trimmed.slice(trimmed.indexOf(' ') + 1).trim() || ''
+        const result = handleSkillSearchCommand(subArgs)
         process.stderr.write(result + '\n')
         continue
       }
@@ -226,7 +226,6 @@ function readLine(prompt: string): Promise<string | null> {
 }
 
 async function runConversation(prompt: string, _config: unknown) {
-  const tools = getTools()
   const messages: BetaMessageParam[] = []
   messages.push({ role: 'user', content: prompt })
   await runConversationTurn(messages)
@@ -278,7 +277,7 @@ async function runConversationTurn(messages: BetaMessageParam[]) {
     }
   }
 
-  const systemPrompt = getSystemContext(skillContext)
+  const systemPrompt = await getSystemContext(skillContext)
 
   let turnCount = 0
   let totalInputTokens = 0
@@ -292,72 +291,74 @@ async function runConversationTurn(messages: BetaMessageParam[]) {
     }
 
     // Auto-compaction check
-    if (needsCompaction(messages)) {
+    const config = loadConfig()
+    if (config.autoCompact && needsCompaction(messages)) {
       process.stderr.write('Compacting conversation...\n')
       compactMessages(messages)
     }
 
-    let fullText = ''
-    let streamComplete = false
     const contentBlocks: ContentBlock[] = []
     const toolUses: ToolUseBlock[] = []
-
-    const ac = createAbortController()
-    const timer = setTimeout(() => ac.abort(), 60000)
-    const clear = () => clearTimeout(timer)
+    let fullText = ''
 
     try {
+      const { signal, clear } = createAbortController(300_000)
+
       await withRetry(
-        () =>
-          streamClaudeAPI(systemPrompt, messages, allTools, model, {
-            signal: ac.signal,
-            onEvent: (evt: BetaRawMessageStreamEvent) => {
-              switch (evt.type) {
-                case 'message_start':
-                  totalInputTokens += evt.message?.usage?.input_tokens ?? 0
-                  break
-                case 'content_block_start': {
-                  const block = evt.content_block
-                  if (block.type === 'tool_use') {
-                    const tu: ToolUseBlock = {
-                      type: 'tool_use',
-                      id: block.id,
-                      name: block.name,
-                      input: {},
-                    }
-                    toolUses.push(tu)
-                    contentBlocks.push(tu)
-                    process.stderr.write('\n  ' + block.name + '...')
-                  } else if (block.type === 'text')
-                    contentBlocks.push({ type: 'text', text: '' })
-                  break
-                }
-                case 'content_block_delta': {
-                  const delta = evt.delta
-                  if (delta.type === 'text_delta') {
-                    const lb = contentBlocks[contentBlocks.length - 1]
-                    if (lb && lb.type === 'text') {
-                      lb.text += delta.text
-                      fullText += delta.text
-                    }
-                  } else if (delta.type === 'input_json_delta') {
-                    const lt = toolUses[toolUses.length - 1]
-                    if (lt)
-                      lt.input = {
-                        ...lt.input,
-                        ...safeJsonMerge(lt.input, delta.partial_json),
-                      }
+        async () => {
+          let streamComplete = false
+          for await (const event of streamClaudeAPI({
+            systemPrompt,
+            messages,
+            tools: allTools,
+            model,
+            signal,
+          })) {
+            const evt = event as BetaRawMessageStreamEvent
+            switch (evt.type) {
+              case 'content_block_start': {
+                const block = evt.content_block
+                if (block.type === 'tool_use') {
+                  const tu: ToolUseBlock = {
+                    type: 'tool_use',
+                    id: block.id,
+                    name: block.name,
+                    input: (block.input as Record<string, unknown>) || {},
                   }
-                  break
-                }
-                case 'message_delta': {
-                  totalInputTokens += evt.usage?.input_tokens ?? 0
-                  totalOutputTokens += evt.usage.output_tokens
-                  break
-                }
+                  toolUses.push(tu)
+                  contentBlocks.push(tu)
+                  process.stderr.write('\n  ' + block.name + '...')
+                } else if (block.type === 'text')
+                  contentBlocks.push({ type: 'text', text: '' })
+                break
               }
-            },
-          }),
+              case 'content_block_delta': {
+                const delta = evt.delta
+                if (delta.type === 'text_delta') {
+                  const lb = contentBlocks[contentBlocks.length - 1]
+                  if (lb && lb.type === 'text') {
+                    lb.text += delta.text
+                    fullText += delta.text
+                  }
+                } else if (delta.type === 'input_json_delta') {
+                  const lt = toolUses[toolUses.length - 1]
+                  if (lt)
+                    lt.input = {
+                      ...lt.input,
+                      ...safeJsonMerge(lt.input, delta.partial_json),
+                    }
+                }
+                break
+              }
+              case 'message_delta': {
+                totalInputTokens += evt.usage?.input_tokens ?? 0
+                totalOutputTokens += evt.usage.output_tokens
+                break
+              }
+            }
+          }
+          streamComplete = true
+        },
         {
           maxRetries: 2,
           onRetry: (attempt, err) => {
@@ -468,25 +469,15 @@ async function runConversationTurn(messages: BetaMessageParam[]) {
 }
 
 function safeJsonMerge(
-  existing: Record<string, unknown>,
+  _existing: Record<string, unknown>,
   partial: string,
 ): Record<string, unknown> {
   try {
-    return JSON.parse(partial)
+    return JSON.parse(partial) as Record<string, unknown>
   } catch {
     return {}
   }
 }
-
-const SYSTEM_PROMPT_TEMPLATE = `You are a coding agent. Be precise, safe, and helpful.
-
-- Fix problems at root cause. Avoid unneeded complexity.
-- Use TaskCreate/TaskUpdate to track sub-tasks for complex work.
-- Use EnterPlanMode before major changes.
-- Use Skill tool to discover available skills.
-- Tools: file ops (Read/Write/Edit/Grep/Glob/ApplyPatch), shell (Bash), web (WebFetch/WebSearch), tasks, plan mode, skills, and MCP tools.
-
-{context}`
 
 main().catch(err => {
   logError('Fatal: ' + String(err))
