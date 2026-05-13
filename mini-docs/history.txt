@@ -1,0 +1,167 @@
+• ———
+codex-ollama-deepseek-v4-pro:cloud
+参考当前项目代码，规划一个最小可用的mini 版本,需要保含哪些模块的代码？
+
+  ## 🧩 Mini 最小可用版本 — 模块规划
+
+  基于对当前 src/ 2,305 文件、packages/ 12 包的完整依赖链追踪，我按调用链路分层规划如下：
+
+  ———
+
+  ### 设计原则
+
+  - Headless/pipe mode only — 无 Ink UI、无 React 组件树，单次 prompt → 多轮 tool loop → 输出结果
+  - Anthropic firstParty only — 砍掉 OpenAI/Gemini/Grok/bedrock/vertex 全部分支
+  - 6 个核心工具 — Bash, FileRead, FileWrite, FileEdit, Grep, Glob
+  - 零 feature flag — 不依赖 bun:bundle，所有功能硬开启
+  - 零遥测 — 无 OTel/Sentry/GrowthBook/analytics
+
+  ———
+
+  ### 保留模块清单（11 层，约 60-80 个文件）
+
+  🟢 Tier 1: 核心调用管道（不可删）
+
+  | 文件 | 说明 |
+  |------|------|
+  | src/entrypoints/cli.tsx | 简化为直走默认路径，砍掉 12 条快速路径分支 |
+  | src/entrypoints/init.ts | 精简为 config load + trust 检查 |
+  | src/main.tsx | 大幅精简 Commander CLI，只保留核心 .action() |
+  | src/query.ts | 核心 API 查询，砍掉 compaction/hooks/autonomy/contextCollapse |
+  | src/QueryEngine.ts | 精简的对话轮次编排器 |
+  | src/services/api/claude.ts | Anthropic API 客户端，砍掉非 firstParty 分支 |
+  | src/services/api/errors.ts | API 错误分类 |
+  | src/services/api/withRetry.ts | 重试逻辑 |
+  | src/services/api/emptyUsage.ts | 用量空值常量 |
+
+  🟢 Tier 2: 上下文与会话状态（不可删）
+
+  | 文件 | 说明 |
+  |------|------|
+  | src/bootstrap/state.ts | 砍掉 OTel/Metrics/Loggers 字段，保留核心状态 |
+  | src/context.ts | 系统提示词构建，砍掉 growthbook/memoize 依赖 |
+  | src/utils/claudemd.ts | CLAUDE.md 加载 |
+  | src/utils/git.ts | Git 状态信息 |
+  | src/state/AppState.tsx | 中心状态类型（精简） |
+  | src/state/store.ts | Zustand 风格 store |
+
+  🟢 Tier 3: 工具系统（不可删，6 个工具）
+
+  | 文件 | 说明 |
+  |------|------|
+  | src/Tool.ts | Tool 接口与工具函数 |
+  | src/tools.ts | 注册表，只注册下方 6 个工具 |
+  | packages/builtin-tools/tools/BashTool/ | Shell 执行 |
+  | packages/builtin-tools/tools/FileReadTool/ | 文件读取 |
+  | packages/builtin-tools/tools/FileWriteTool/ | 文件写入 |
+  | packages/builtin-tools/tools/FileEditTool/ | 文件编辑 |
+  | packages/builtin-tools/tools/GrepTool/ | 内容搜索 |
+  | packages/builtin-tools/tools/GlobTool/ | 文件匹配 |
+
+  > 每个 Tool 目录内通常含 prompt.ts + 主实现文件 + 可能 utils/，按需保留。
+
+  🟢 Tier 4: 核心工具函数（不可删）
+
+  | 文件 | 说明 |
+  |------|------|
+  | utils/log.ts | 日志 |
+  | utils/debug.ts | 调试日志 |
+  | utils/errors.ts | 错误工具 |
+  | utils/messages.ts | 消息创建/解析 |
+  | utils/config.ts | 配置读写 |
+  | utils/envUtils.js | 环境变量判断 |
+  | utils/crypto.js | randomUUID |
+  | utils/auth.ts | API Key/OAuth 认证 |
+  | utils/platform.js | 平台检测 |
+  | utils/execFileNoThrow.ts | 安全子进程调用 |
+  | utils/abortController.ts | AbortController |
+  | utils/cwd.ts | CWD 管理 |
+  | utils/Shell.ts | Shell 抽象 |
+  | utils/permissions.ts | 权限工具 |
+  | utils/systemPromptType.ts | SystemPrompt 类型 |
+  | utils/array.js | 数组工具函数 |
+  | utils/signal.ts | 响应式信号 |
+  | utils/api.ts | API 辅助函数 |
+  | utils/tokens.ts | Token 计数 |
+  | utils/context.ts | 上下文工具 |
+
+  🟢 Tier 5: 设置系统（保留核心 5 个）
+
+  utils/settings/ 下只保留：
+
+  - settings.ts — 核心读写
+  - constants.ts — 常量
+  - types.ts — 类型
+  - settingsCache.ts — 缓存
+  - managedPath.ts — 路径
+
+  🟢 Tier 6: Model 系统（保留 3 个）
+
+  - utils/model/model.ts — 模型类型
+  - utils/model/modelStrings.ts — 模型名映射
+  - utils/model/providers.ts — Provider 选择（硬编码 firstParty）
+
+  🟢 Tier 7: 类型定义（保留 5 个）
+
+  - types/message.ts — 消息层级
+  - types/global.d.ts — 全局声明
+  - types/internal-modules.d.ts — 模块类型
+  - types/permissions.ts — 权限类型
+  - types/ids.ts — ID 类型
+
+  🟢 Tier 8: 常量（保留 6 个）
+
+  - constants/common.ts — 通用常量
+  - constants/betas.ts — Beta headers
+  - constants/product.ts — 产品 URL
+  - constants/prompts.ts — 提示词常量
+  - constants/messages.ts — 消息常量
+  - constants/querySource.ts — Query 来源
+
+  🟡 Tier 9: 上下文压缩（条件保留）
+
+  长对话超过 token 限制时需要。如果 mini 版只做单次短交互，可删。
+
+  - services/compact/compact.ts
+  - services/compact/autoCompact.ts
+
+  🟢 Tier 10: 外部包（保留 2 个）
+
+  - packages/builtin-tools/ — 6 个工具实现
+  - packages/@ant/model-provider/ — Model 抽象层（EMPTY_USAGE 等常量）
+
+  🟢 Tier 11: 项目基建
+
+  - tsconfig.json / tsconfig.base.json — 精简
+  - package.json — 裁掉 90% dependencies 和 12 个 workspace
+  - biome.json — 可选保留
+
+  ———
+
+  ### 可以完全删除（约 85% 代码量）
+
+  | 目录 | 理由 |
+  | src/services/mcp/ + packages/mcp-client/ | MCP 协议 |
+  | src/services/acp/ + packages/acp-link/ | ACP 协议 |
+  | src/services/analytics/ | 遥测/分析 |
+  | src/services/lsp/ | LSP 语言服务 |
+  | src/services/skill*/ + src/skills/ | 技能系统 |
+  | src/buddy/, src/assistant/, src/coordinator/ | 多 Agent 协作 |
+  | src/voice/, src/vim/, src/ssh/ | 语音/Vim/SSH |
+  | packages/@ant/ink/ | Ink 框架 (forked) |
+  | packages/@ant/computer-use-* (3 个) | Computer Use |
+  | packages/@ant/claude-for-chrome-mcp/ | Chrome 控制 |
+  | packages/remote-control-server/ | 自托管 RCS |
+  | packages/*-napi/ (5 个) | 原生 N-API 绑定 |
+  | packages/weixin/ | 微信集成 |
+
+  ———
+
+  ### 估算
+
+  | 指标 | 当前项目 | Mini 版本 |
+  |------|----------|-----------|
+  | 源文件数 | ~2,300 | ~60-80 |
+  | 源码大小 | ~18 MB | ~1-2 MB |
+  | 保留 packages | 12 | 2 |
+  | TypeScript 编译时间 | — | < 3s |

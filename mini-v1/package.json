@@ -1,0 +1,19 @@
+{
+  "name": "claude-code-mini",
+  "version": "1.0.0",
+  "description": "Minimal viable Claude Code CLI - Headless/pipe mode, Anthropic firstParty only, 6 core tools",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/entrypoints/cli.ts",
+    "build": "bun build src/entrypoints/cli.ts --outdir=dist --target=bun",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.81.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.7.0"
+  }
+}
