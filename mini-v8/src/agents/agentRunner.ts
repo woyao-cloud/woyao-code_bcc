@@ -424,13 +424,14 @@ function filterToolsForAgent(allTools: Tool[], agent: AgentDefinition): Tool[] {
 
 /** Safely merge partial JSON into existing object */
 function safeJsonMerge(
-  _existing: Record<string, unknown>,
+  existing: Record<string, unknown>,
   partial: string,
 ): Record<string, unknown> {
   try {
-    return JSON.parse(partial) as Record<string, unknown>
+    const parsed = JSON.parse(partial) as Record<string, unknown>
+    return { ...existing, ...parsed }
   } catch {
-    return {}
+    return existing
   }
 }
 
