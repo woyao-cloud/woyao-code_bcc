@@ -440,11 +440,16 @@ async function runConversationTurn(
                   }
                 } else if (delta.type === 'input_json_delta') {
                   const lt = toolUses[toolUses.length - 1]
-                  if (lt)
-                    lt.input = {
-                      ...lt.input,
-                      ...safeJsonMerge(lt.input, delta.partial_json),
-                    }
+                  if (lt) {
+                    const raw =
+                      (delta as unknown as Record<string, string>)
+                        .partial_json || ''
+                    const short =
+                      raw && raw.length > 80 ? raw.slice(0, 80) + '...' : raw
+                    process.stderr.write(`[dbg] input_json_delta #${jsonBuf.size} raw=${short}
+`)
+                    lt.input = safeJsonMerge(lt.input, raw, lt.id)
+                  }
                 }
                 break
               }
@@ -588,23 +593,50 @@ async function runConversationTurn(
 
 function question(prompt: string): Promise<string | null> {
   const rl = createInterface({ input: stdin, output: stdout })
+  let resolved = false
   return new Promise(resolve => {
+    const done = (value: string | null) => {
+      if (!resolved) {
+        resolved = true
+        resolve(value)
+      }
+    }
     rl.question(prompt, answer => {
+      done(answer)
       rl.close()
-      resolve(answer)
     })
-    rl.on('close', () => resolve(null))
+    rl.on('close', () => done(null))
   })
 }
 
+// Buffered JSON string per tool use (for diagnostic logging)
+const jsonBuf = new Map<string, string>()
+
 function safeJsonMerge(
-  _existing: Record<string, unknown>,
+  existing: Record<string, unknown>,
   partial: string,
+  toolUseId: string,
 ): Record<string, unknown> {
+  const prev = jsonBuf.get(toolUseId) || ''
+  // Try parsing directly first (Anthropic sends accumulated JSON)
   try {
     return JSON.parse(partial) as Record<string, unknown>
   } catch {
-    return {}
+    // Log the unparseable partial for debugging
+    const snippet =
+      partial.length > 120 ? partial.slice(0, 120) + '...' : partial
+    process.stderr.write(`[dbg] partial_json FAIL parse (len=${partial.length}): ${snippet}
+`)
+  }
+  // Fallback: accumulate and try to parse the full buffer
+  const buf = prev + partial
+  jsonBuf.set(toolUseId, buf)
+  try {
+    const parsed = JSON.parse(buf) as Record<string, unknown>
+    jsonBuf.delete(toolUseId)
+    return parsed
+  } catch {
+    return existing
   }
 }
 
