@@ -7,16 +7,8 @@ import type { Tool } from '../../Tool.js'
 import { getAPIKey, getAnthropicBaseURL } from '../../utils/auth.js'
 import { resolveModel } from '../../utils/model/model.js'
 import { BETAS } from '../../constants/betas.js'
-import {
-  getAPIProvider,
-  isOpenAIProvider,
-} from '../../utils/model/providers.js'
-import {
-  streamOpenAIAPI,
-  getOpenAIConfig,
-  toolsToOpenAIFormat,
-  messagesToOpenAIFormat,
-} from './openai/client.js'
+import { isOpenAIProvider } from '../../utils/model/providers.js'
+import { streamOpenAIAPI, getOpenAIConfig } from './openai/client.js'
 import { openAIToAnthropicStream } from './openai/streamAdapter.js'
 import { resolveOpenAIModel } from './openai/modelMap.js'
 
@@ -73,8 +65,6 @@ export async function callClaudeAPI(params: QueryParams) {
 export async function* streamClaudeAPI(
   params: QueryParams,
 ): AsyncGenerator<BetaRawMessageStreamEvent> {
-  const provider = getAPIProvider()
-
   if (isOpenAIProvider()) {
     // Use OpenAI-compatible path
     const config = getOpenAIConfig()

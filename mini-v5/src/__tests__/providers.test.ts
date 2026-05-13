@@ -52,11 +52,11 @@ describe('getAPIProvider', () => {
     expect(getAPIProvider()).toBe('firstParty')
   })
 
-  test('CLAUDE_CODE_USE_OPENAI overrides ANTHROPIC_BASE_URL', () => {
+  test('ANTHROPIC_BASE_URL overrides CLAUDE_CODE_USE_OPENAI', () => {
     process.env.CLAUDE_CODE_USE_OPENAI = '1'
     process.env.ANTHROPIC_BASE_URL = 'http://localhost:11434'
     process.env.ANTHROPIC_AUTH_TOKEN = 'test'
-    expect(getAPIProvider()).toBe('openai')
+    expect(getAPIProvider()).toBe('firstParty')
   })
 })
 
