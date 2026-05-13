@@ -1,15 +1,30 @@
-import { describe, test, expect, beforeEach } from 'bun:test'
+﻿import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 import {
   loadConfig,
   saveConfig,
   updateConfig,
   clearConfigCache,
+  setConfigDir,
 } from '../services/config/configManager.js'
 import type { AppConfig } from '../services/config/configManager.js'
 
+let tempDir: string
+
 describe('configManager', () => {
   beforeEach(() => {
-    clearConfigCache()
+    // Create a unique temp directory per test for complete isolation
+    tempDir = mkdtempSync(join(tmpdir(), 'config-test-'))
+    setConfigDir(tempDir)
+  })
+
+  afterEach(() => {
+    // Clean up temp directory
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {}
   })
 
   test('loadConfig returns empty object when no config', () => {
@@ -43,7 +58,6 @@ describe('configManager', () => {
   test('clearConfigCache forces re-read', () => {
     saveConfig({ model: 'cached' })
     expect(loadConfig().model).toBe('cached')
-    // Clear cache and verify it still loads same data
     clearConfigCache()
     expect(loadConfig().model).toBe('cached')
   })

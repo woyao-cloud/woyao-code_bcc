@@ -1,6 +1,4 @@
-﻿import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdirSync, writeFileSync, rmSync } from 'fs'
-import { join } from 'path'
+﻿import { describe, test, expect } from 'bun:test'
 
 import {
   scanLocalTeamMemories,
@@ -39,7 +37,6 @@ describe('removeTeamMemory', () => {
   test('removes a team memory file', () => {
     const testKey = 'test-remove-' + Date.now()
     writeTeamMemory(testKey, 'temporary')
-
     removeTeamMemory(testKey)
 
     const entries = scanLocalTeamMemories()

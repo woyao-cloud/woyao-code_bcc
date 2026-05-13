@@ -3,15 +3,12 @@
 // ============================================================
 // Auto-extracts key notes from the ongoing conversation
 // into a per-session markdown file for context preservation.
+// Supports setSessionMemoryDir() for test isolation.
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-
-// ============================================================
-// Types
-// ============================================================
 
 export interface SessionMemoryNote {
   id: string
@@ -22,17 +19,10 @@ export interface SessionMemoryNote {
 
 export interface SessionMemoryConfig {
   enabled: boolean
-  /** Min tokens before first extraction */
   minTokensForInit: number
-  /** Min tokens between extractions */
   minTokensBetweenUpdate: number
-  /** Max notes to retain */
   maxNotes: number
 }
-
-// ============================================================
-// Config
-// ============================================================
 
 const DEFAULT_CONFIG: SessionMemoryConfig = {
   enabled: false,
@@ -42,34 +32,31 @@ const DEFAULT_CONFIG: SessionMemoryConfig = {
 }
 
 let config: SessionMemoryConfig = { ...DEFAULT_CONFIG }
-
-// Per-session state
 let sessionId: string | null = null
 let lastExtractionTokenCount = 0
 let extractedNotes: SessionMemoryNote[] = []
 
-// ============================================================
-// Paths
-// ============================================================
+// Mutable path for test isolation
+let sessionMemDir = join(homedir(), '.claude-code-mini', 'session-memory')
+
+export function setSessionMemoryDir(dir: string): void {
+  sessionMemDir = dir
+  try {
+    mkdirSync(sessionMemDir, { recursive: true })
+  } catch {}
+}
 
 function getSessionMemoryDir(): string {
-  const dir = join(homedir(), '.claude-code-mini', 'session-memory')
-  try {
-    mkdirSync(dir, { recursive: true })
-  } catch {}
-  return dir
+  return sessionMemDir
 }
 
 function getSessionMemoryPath(id: string): string {
-  return join(getSessionMemoryDir(), `${id}.md`)
+  return join(getSessionMemoryDir(), id + '.md')
 }
 
-// ============================================================
-// Session lifecycle
-// ============================================================
-
 export function initSession(): void {
-  sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  sessionId =
+    'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   lastExtractionTokenCount = 0
   extractedNotes = []
 }
@@ -83,10 +70,6 @@ export function endSession(): void {
   extractedNotes = []
 }
 
-// ============================================================
-// Config management
-// ============================================================
-
 export function getSessionMemoryConfig(): SessionMemoryConfig {
   return { ...config }
 }
@@ -96,10 +79,6 @@ export function setSessionMemoryConfig(
 ): void {
   config = { ...config, ...updates }
 }
-
-// ============================================================
-// Token estimation (simple heuristic)
-// ============================================================
 
 export function estimateTotalTokens(messages: BetaMessageParam[]): number {
   let total = 0
@@ -117,36 +96,17 @@ export function estimateTotalTokens(messages: BetaMessageParam[]): number {
   return total
 }
 
-// ============================================================
-// Extraction logic
-// ============================================================
-
-/**
- * Check if we should trigger a session memory extraction.
- */
 export function shouldExtractMemory(messages: BetaMessageParam[]): boolean {
   if (!config.enabled) return false
-
   const currentTokens = estimateTotalTokens(messages)
-
-  // First extraction after hitting init threshold
   if (extractedNotes.length === 0) {
     return currentTokens >= config.minTokensForInit
   }
-
-  // Subsequent extractions after enough new tokens
   return (
     currentTokens - lastExtractionTokenCount >= config.minTokensBetweenUpdate
   )
 }
 
-/**
- * Extract key notes from the conversation.
- * Uses a heuristic approach to identify important info:
- * - Repeated technical terms
- * - Decisions made ("I'll...", "Let's...", "We should...")
- * - File paths and code patterns
- */
 export function extractSessionNotes(
   messages: BetaMessageParam[],
 ): SessionMemoryNote[] {
@@ -157,12 +117,11 @@ export function extractSessionNotes(
   const notes: SessionMemoryNote[] = []
   const now = new Date().toISOString()
 
-  // User intent/requests
   for (const [i, msg] of userMessages.slice(-5).entries()) {
     const preview = msg.slice(0, 150).trim()
     if (preview && !isDuplicateNote(notes, preview)) {
       notes.push({
-        id: `user-${i}`,
+        id: 'user-' + i,
         category: 'user-request',
         content: preview,
         timestamp: now,
@@ -170,12 +129,11 @@ export function extractSessionNotes(
     }
   }
 
-  // Decisions made
   for (const [i, decision] of assistantDecisions.slice(-5).entries()) {
     const preview = decision.slice(0, 150).trim()
     if (preview && !isDuplicateNote(notes, preview)) {
       notes.push({
-        id: `decision-${i}`,
+        id: 'decision-' + i,
         category: 'decision',
         content: preview,
         timestamp: now,
@@ -183,13 +141,12 @@ export function extractSessionNotes(
     }
   }
 
-  // Key file paths
   for (const [i, fp] of filePaths.slice(-10).entries()) {
     if (!isDuplicateNote(notes, fp)) {
       notes.push({
-        id: `file-${i}`,
+        id: 'file-' + i,
         category: 'context',
-        content: `File: ${fp}`,
+        content: 'File: ' + fp,
         timestamp: now,
       })
     }
@@ -198,27 +155,19 @@ export function extractSessionNotes(
   return notes
 }
 
-/**
- * Persist session memory notes to the markdown file.
- */
 export function persistSessionMemory(notes: SessionMemoryNote[]): void {
   if (!sessionId) return
-
   const path = getSessionMemoryPath(sessionId)
-
-  // Merge with existing notes
   const existing = readSessionMemory(sessionId)
   const allNotes = mergeNotes(existing, notes, config.maxNotes)
 
-  // Build markdown
-  const lines = ['# Session Memory', '', `Session: ${sessionId}`, '']
-
+  const lines = ['# Session Memory', '', 'Session: ' + sessionId, '']
   const byCategory = groupBy(allNotes, n => n.category)
   for (const [category, catNotes] of Object.entries(byCategory)) {
-    lines.push(`## ${formatCategory(category)}`)
+    lines.push('## ' + formatCategory(category))
     for (const note of catNotes) {
-      lines.push(`- ${note.content}`)
-      lines.push(`  _${note.timestamp}_`)
+      lines.push('- ' + note.content)
+      lines.push('  _' + note.timestamp + '_')
     }
     lines.push('')
   }
@@ -228,24 +177,16 @@ export function persistSessionMemory(notes: SessionMemoryNote[]): void {
   } catch {}
 }
 
-/**
- * Read existing session memory from disk.
- */
 export function readSessionMemory(id: string): SessionMemoryNote[] {
   const path = getSessionMemoryPath(id)
   if (!existsSync(path)) return []
-
   try {
-    const raw = readFileSync(path, 'utf-8')
-    return parseSessionMemoryMarkdown(raw)
+    return parseSessionMemoryMarkdown(readFileSync(path, 'utf-8'))
   } catch {
     return []
   }
 }
 
-/**
- * Get the current session memory content for injection into the system prompt.
- */
 export function getSessionMemoryForPrompt(id: string): string {
   const notes = readSessionMemory(id)
   if (notes.length === 0) return ''
@@ -253,18 +194,16 @@ export function getSessionMemoryForPrompt(id: string): string {
   const lines = ['', '## Session Memory (auto-extracted)', '']
   const byCategory = groupBy(notes, n => n.category)
   for (const [category, catNotes] of Object.entries(byCategory)) {
-    lines.push(`### ${formatCategory(category)}`)
+    lines.push('### ' + formatCategory(category))
     for (const note of catNotes.slice(-5)) {
-      lines.push(`- ${note.content}`)
+      lines.push('- ' + note.content)
     }
     lines.push('')
   }
   return lines.join('\n')
 }
 
-// ============================================================
 // Helpers
-// ============================================================
 
 function extractUserMessages(messages: BetaMessageParam[]): string[] {
   return messages
@@ -317,8 +256,7 @@ function extractAssistantDecisions(messages: BetaMessageParam[]): string[] {
           : ''
 
     for (const pattern of decisionPatterns) {
-      const matches = text.matchAll(pattern)
-      for (const match of matches) {
+      for (const match of text.matchAll(pattern)) {
         if (match[1]) decisions.push(match[1].trim())
       }
     }
@@ -348,8 +286,7 @@ function extractFilePaths(messages: BetaMessageParam[]): string[] {
               .join(' ')
           : ''
 
-    const matches = text.matchAll(filePathPattern)
-    for (const match of matches) {
+    for (const match of text.matchAll(filePathPattern)) {
       if (match[1]) paths.push(match[1])
     }
   }
@@ -363,11 +300,8 @@ function mergeNotes(
 ): SessionMemoryNote[] {
   const merged = [...existing]
   for (const note of newNotes) {
-    if (!isDuplicateNote(merged, note.content)) {
-      merged.push(note)
-    }
+    if (!isDuplicateNote(merged, note.content)) merged.push(note)
   }
-  // Keep most recent, trim oldest
   return merged.slice(-maxNotes)
 }
 
@@ -410,11 +344,10 @@ function parseSessionMemoryMarkdown(raw: string): SessionMemoryNote[] {
         currentCategory = 'context'
       else currentCategory = header.replace(/\s+/g, '-')
     } else if (line.startsWith('- ')) {
-      const content = line.slice(2).trim()
       notes.push({
-        id: `note-${notes.length}`,
+        id: 'note-' + notes.length,
         category: currentCategory,
-        content,
+        content: line.slice(2).trim(),
         timestamp: new Date().toISOString(),
       })
     }

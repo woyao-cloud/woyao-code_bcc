@@ -1,4 +1,7 @@
-﻿import { describe, test, expect } from 'bun:test'
+﻿import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 
 import {
   initSession,
@@ -11,8 +14,11 @@ import {
   extractSessionNotes,
   persistSessionMemory,
   readSessionMemory,
+  setSessionMemoryDir,
   type SessionMemoryNote,
 } from '../sessionMemory.js'
+
+let tempDir: string
 
 describe('initSession', () => {
   test('creates a new session ID', () => {
@@ -86,8 +92,20 @@ describe('extractSessionNotes', () => {
 })
 
 describe('persistSessionMemory and readSessionMemory', () => {
-  test('writes and reads session memory', () => {
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'smem-test-'))
+    setSessionMemoryDir(tempDir)
     initSession()
+  })
+
+  afterEach(() => {
+    endSession()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {}
+  })
+
+  test('writes and reads session memory', () => {
     const id = getSessionId()
     expect(id).not.toBe(null)
 
@@ -99,13 +117,13 @@ describe('persistSessionMemory and readSessionMemory', () => {
         timestamp: new Date().toISOString(),
       },
     ]
+
     persistSessionMemory(notes)
 
     if (id) {
       const read = readSessionMemory(id)
       expect(read.length).toBeGreaterThan(0)
+      expect(read[0]?.content).toBe('Decided to use PostgreSQL')
     }
-
-    endSession()
   })
 })

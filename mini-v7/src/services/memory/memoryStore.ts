@@ -1,7 +1,8 @@
-// ============================================================
+﻿// ============================================================
 // Upgraded Local Memory Store for mini-v7
 // ============================================================
 // Enhanced: tags, categories, search, import/export
+// Supports setMemoryDir() for test isolation.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -22,11 +23,18 @@ export interface MemoryStore {
 }
 
 // ============================================================
-// Paths
+// Paths (mutable for test isolation)
 // ============================================================
 
 let memoryDir = join(homedir(), '.claude-code-mini')
 let memoryFile = join(memoryDir, 'memories-v2.json')
+
+/** Override the memory store directory for testing. */
+export function setMemoryDir(dir: string): void {
+  memoryDir = dir
+  memoryFile = join(dir, 'memories-v2.json')
+  ensureDir()
+}
 
 // ============================================================
 // Internal operations
@@ -166,7 +174,6 @@ export function deleteMemory(id: string): boolean {
 // Search
 // ============================================================
 
-/** Search memories by content, tags, and category */
 export function searchMemories(query: string): Memory[] {
   const store = loadStore()
   const lower = query.toLowerCase()
@@ -183,7 +190,6 @@ export function searchMemories(query: string): Memory[] {
 // Tags
 // ============================================================
 
-/** Get all unique tags across all memories */
 export function getAllTags(): string[] {
   const store = loadStore()
   const tagSet = new Set<string>()
@@ -195,7 +201,6 @@ export function getAllTags(): string[] {
   return [...tagSet].sort()
 }
 
-/** Get all unique categories */
 export function getAllCategories(): string[] {
   const store = loadStore()
   return [...new Set(store.memories.map(m => m.category))].sort()
@@ -211,8 +216,8 @@ export function exportMemories(format: 'json' | 'markdown' = 'json'): string {
   if (format === 'markdown') {
     const lines = ['# Memories', '']
     for (const m of store.memories) {
-      lines.push(`## ${m.category}`)
-      lines.push(`_Tags: ${m.tags.join(', ')}_`)
+      lines.push('## ' + m.category)
+      lines.push('_Tags: ' + m.tags.join(', ') + '_')
       lines.push('')
       lines.push(m.content)
       lines.push('')
@@ -260,8 +265,8 @@ export function formatMemoriesForPrompt(): string {
 
     const lines = ['', '## User Memories', '']
     for (const m of memories) {
-      const tagStr = m.tags.length > 0 ? ` [${m.tags.join(', ')}]` : ''
-      lines.push(`- ${m.content}${tagStr}`)
+      const tagStr = m.tags.length > 0 ? ' [' + m.tags.join(', ') + ']' : ''
+      lines.push('- ' + m.content + tagStr)
     }
     lines.push('')
     return lines.join('\n')
