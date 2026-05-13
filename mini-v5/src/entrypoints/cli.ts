@@ -234,7 +234,7 @@ async function runConversationTurn(messages: BetaMessageParam[]) {
                     type: 'tool_use',
                     id: block.id,
                     name: block.name,
-                    input: {},
+                    input: (block.input as Record<string, unknown>) || {},
                   }
                   toolUses.push(tu)
                   contentBlocks.push(tu)

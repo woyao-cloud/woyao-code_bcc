@@ -53,7 +53,9 @@ export async function callClaudeAPI(params: QueryParams) {
       description: t.description,
       input_schema: t.inputSchema,
     })),
-    betas: BETAS as [string, ...string[]],
+    betas: baseURL
+      ? ([] as unknown as [string, ...string[]])
+      : (BETAS as [string, ...string[]]),
   })
 
   return response
@@ -111,7 +113,9 @@ export async function* streamClaudeAPI(
           description: t.description,
           input_schema: t.inputSchema,
         })),
-        betas: BETAS as [string, ...string[]],
+        betas: baseURL
+          ? ([] as unknown as [string, ...string[]])
+          : (BETAS as [string, ...string[]]),
         stream: true as const,
       },
       {
