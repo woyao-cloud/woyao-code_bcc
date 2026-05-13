@@ -1,49 +1,50 @@
 import { Anthropic } from '@anthropic-ai/sdk'
-import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.js'
+import type {
+  BetaMessageParam,
+  BetaRawMessageStreamEvent,
+} from '@anthropic-ai/sdk/resources/beta/messages/messages.js'
 import type { Tool } from '../../Tool.js'
-import type { Message } from '../../types/message.js'
 import { getAPIKey } from '../../utils/auth.js'
-import { getCwd } from '../../bootstrap/state.js'
 import { resolveModel } from '../../utils/model/model.js'
 import { BETAS } from '../../constants/betas.js'
-import { getAPIProvider } from '../../utils/model/providers.js'
+import {
+  getAPIProvider,
+  isOpenAIProvider,
+} from '../../utils/model/providers.js'
+import {
+  streamOpenAIAPI,
+  getOpenAIConfig,
+  toolsToOpenAIFormat,
+  messagesToOpenAIFormat,
+} from './openai/client.js'
+import { openAIToAnthropicStream } from './openai/streamAdapter.js'
+import { resolveOpenAIModel } from './openai/modelMap.js'
 
 // ============================================================
-// API Client for the mini CLI
+// API Client for mini-v2 (Anthropic + OpenAI)
 // ============================================================
 
-/** Maximum tokens for the model response */
 const MAX_TOKENS = 32000
 
 export interface QueryParams {
-  /** System prompt */
   systemPrompt: string
-  /** Messages to send */
   messages: BetaMessageParam[]
-  /** Available tools */
   tools: Tool[]
-  /** Model override */
   model?: string
-  /** Abort signal */
   signal?: AbortSignal
-  /** Max tokens for this request */
   maxTokens?: number
 }
 
 /**
- * Make a non-streaming API call to Claude
+ * Non-streaming API call (Anthropic only)
  */
 export async function callClaudeAPI(params: QueryParams) {
   const apiKey = getAPIKey()
   if (!apiKey) {
-    throw new Error(
-      'ANTHROPIC_API_KEY not set. Set it via environment variable.',
-    )
+    throw new Error('API key not set. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.')
   }
 
   const model = resolveModel(params.model)
-  const provider = getAPIProvider()
-
   const client = new Anthropic({ apiKey })
 
   const response = await client.beta.messages.create({
@@ -63,46 +64,69 @@ export async function callClaudeAPI(params: QueryParams) {
 }
 
 /**
- * Make a streaming API call to Claude
+ * Streaming API call - auto-selects Anthropic or OpenAI provider
  */
-export async function* streamClaudeAPI(params: QueryParams) {
-  const apiKey = getAPIKey()
-  if (!apiKey) {
-    throw new Error(
-      'ANTHROPIC_API_KEY not set. Set it via environment variable.',
-    )
-  }
+export async function* streamClaudeAPI(
+  params: QueryParams,
+): AsyncGenerator<BetaRawMessageStreamEvent> {
+  const provider = getAPIProvider()
 
-  const model = resolveModel(params.model)
-  const client = new Anthropic({ apiKey })
+  if (isOpenAIProvider()) {
+    // Use OpenAI-compatible path
+    const config = getOpenAIConfig()
+    if (!config.apiKey) {
+      throw new Error('OPENAI_API_KEY not set.')
+    }
 
-  const stream = await client.beta.messages.create(
-    {
-      model,
-      max_tokens: params.maxTokens ?? MAX_TOKENS,
-      system: params.systemPrompt,
-      messages: params.messages,
-      tools: params.tools.map(t => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.inputSchema,
-      })),
-      betas: BETAS as [string, ...string[]],
-      stream: true as const,
-    },
-    {
+    const resolvedModel = params.model
+      ? resolveOpenAIModel(resolveModel(params.model))
+      : config.model
+
+    const openAIStream = streamOpenAIAPI({
+      systemPrompt: params.systemPrompt,
+      messages: params.messages as Array<{ role: string; content: unknown }>,
+      tools: params.tools,
+      model: resolvedModel,
       signal: params.signal,
-    },
-  )
+      maxTokens: params.maxTokens,
+    })
 
-  for await (const event of stream) {
-    yield event
+    yield* openAIToAnthropicStream(openAIStream)
+  } else {
+    // Anthropic firstParty path
+    const apiKey = getAPIKey()
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY not set.')
+    }
+
+    const model = resolveModel(params.model)
+    const client = new Anthropic({ apiKey })
+
+    const stream = await client.beta.messages.create(
+      {
+        model,
+        max_tokens: params.maxTokens ?? MAX_TOKENS,
+        system: params.systemPrompt,
+        messages: params.messages,
+        tools: params.tools.map(t => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.inputSchema,
+        })),
+        betas: BETAS as [string, ...string[]],
+        stream: true as const,
+      },
+      {
+        signal: params.signal,
+      },
+    )
+
+    for await (const event of stream) {
+      yield event
+    }
   }
 }
 
-/**
- * Accumulate usage from API responses
- */
 export function accumulateUsage(
   current: { input_tokens: number; output_tokens: number },
   delta: { input_tokens?: number; output_tokens?: number },
@@ -112,7 +136,6 @@ export function accumulateUsage(
   return current
 }
 
-/** Non-nullable usage type */
 export type NonNullableUsage = {
   input_tokens: number
   output_tokens: number
@@ -120,7 +143,6 @@ export type NonNullableUsage = {
   cache_read_input_tokens: number
 }
 
-/** Empty (zero) usage */
 export const EMPTY_USAGE: NonNullableUsage = {
   input_tokens: 0,
   output_tokens: 0,

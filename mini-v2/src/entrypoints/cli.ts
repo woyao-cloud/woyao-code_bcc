@@ -15,6 +15,7 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { Tool, ToolUseContext } from '../Tool.js'
 import { createAbortController } from '../utils/abortController.js'
+import { isOpenAIProvider, getAPIProvider } from '../utils/model/providers.js'
 
 interface ToolUseBlock {
   type: 'tool_use'
@@ -34,7 +35,7 @@ async function main() {
   // Setup MACRO
   if (typeof globalThis.MACRO === 'undefined') {
     ;(globalThis as unknown as Record<string, unknown>).MACRO = {
-      VERSION: '1.0.0',
+      VERSION: '2.0.0',
       BUILD_TIME: new Date().toISOString(),
     }
   }
@@ -43,11 +44,13 @@ async function main() {
 
   // Check for API key
   const apiKey = getAPIKey()
+  const usingOpenAI = isOpenAIProvider()
   if (!apiKey) {
+    const keyName = usingOpenAI ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'
     process.stderr.write(
-      'Error: ANTHROPIC_API_KEY environment variable not set.\n',
+      'Error: ' + keyName + ' environment variable not set.\n',
     )
-    process.stderr.write('Set it via: $env:ANTHROPIC_API_KEY="sk-ant-..."\n')
+    process.stderr.write('Set it via: $env:' + keyName + '="your-key"\n')
     process.exit(1)
   }
 
@@ -79,10 +82,11 @@ async function main() {
   const tools = getTools()
   const toolsMap = new Map(tools.map(t => [t.name, t]))
   const model = resolveModel()
+  const provider = getAPIProvider()
 
   // Build full system prompt
   const systemPrompt = `You are a coding agent running in the terminal. You help users write, edit, and understand code.
-You have access to tools for reading/writing files, executing shell commands, and searching code.
+You have access to tools for reading/writing files, executing shell commands, and searching code, and fetching web content.
 Be concise, accurate, and helpful.
 
 ${systemContext}`
@@ -90,7 +94,8 @@ ${systemContext}`
   // Messages array for the API
   const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
 
-  logInfo(`Model: ${model}`)
+  logInfo('Provider: ' + provider)
+  logInfo('Model: ' + model)
   logInfo(`Tools: ${tools.map(t => t.name).join(', ')}`)
   logInfo(`Working: ${cwd}`)
   process.stderr.write(`Thinking...\n`)

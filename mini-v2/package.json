@@ -1,7 +1,7 @@
 {
   "name": "claude-code-mini",
-  "version": "1.0.0",
-  "description": "Minimal viable Claude Code CLI - Headless/pipe mode, Anthropic firstParty only, 6 core tools",
+  "version": "2.0.0",
+  "description": "Minimal Claude Code CLI v2 - Anthropic + OpenAI compat, 8 core tools",
   "type": "module",
   "scripts": {
     "dev": "bun run src/entrypoints/cli.ts",
