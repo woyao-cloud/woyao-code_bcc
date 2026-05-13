@@ -5,6 +5,7 @@ const OLD_ENV = { ...process.env }
 
 beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
   delete process.env.CLAUDE_API_KEY
   delete process.env.OPENAI_API_KEY
   delete process.env.CLAUDE_CODE_USE_OPENAI
@@ -18,6 +19,11 @@ describe('getAPIKey', () => {
   test('returns ANTHROPIC_API_KEY when set', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-test'
     expect(getAPIKey()).toBe('sk-ant-test')
+  })
+
+  test('returns ANTHROPIC_AUTH_TOKEN as fallback', () => {
+    process.env.ANTHROPIC_AUTH_TOKEN = 'sk-auth-token'
+    expect(getAPIKey()).toBe('sk-auth-token')
   })
 
   test('returns CLAUDE_API_KEY as fallback', () => {

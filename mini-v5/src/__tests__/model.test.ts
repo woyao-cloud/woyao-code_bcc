@@ -62,8 +62,8 @@ describe('getMaxTokens', () => {
     expect(getMaxTokens('claude-opus-4-20250514')).toBe(200000)
   })
 
-  test('returns default 4096 for unknown model', () => {
-    expect(getMaxTokens('unknown')).toBe(4096)
+  test('returns default 32000 for unknown model', () => {
+    expect(getMaxTokens('unknown')).toBe(32000)
   })
 })
 

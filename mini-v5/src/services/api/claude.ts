@@ -4,7 +4,7 @@ import type {
   BetaRawMessageStreamEvent,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.js'
 import type { Tool } from '../../Tool.js'
-import { getAPIKey } from '../../utils/auth.js'
+import { getAPIKey, getAnthropicBaseURL } from '../../utils/auth.js'
 import { resolveModel } from '../../utils/model/model.js'
 import { BETAS } from '../../constants/betas.js'
 import {
@@ -21,7 +21,7 @@ import { openAIToAnthropicStream } from './openai/streamAdapter.js'
 import { resolveOpenAIModel } from './openai/modelMap.js'
 
 // ============================================================
-// API Client for mini-v2 (Anthropic + OpenAI)
+// API Client for mini-v5 (Anthropic + OpenAI)
 // ============================================================
 
 const MAX_TOKENS = 32000
@@ -45,7 +45,11 @@ export async function callClaudeAPI(params: QueryParams) {
   }
 
   const model = resolveModel(params.model)
-  const client = new Anthropic({ apiKey })
+  const baseURL = getAnthropicBaseURL()
+  const client = new Anthropic({
+    apiKey,
+    ...(baseURL ? { baseURL } : {}),
+  })
 
   const response = await client.beta.messages.create({
     model,
@@ -93,14 +97,18 @@ export async function* streamClaudeAPI(
 
     yield* openAIToAnthropicStream(openAIStream)
   } else {
-    // Anthropic firstParty path
+    // Anthropic firstParty path (also used for local proxies like Ollama)
     const apiKey = getAPIKey()
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY not set.')
     }
 
     const model = resolveModel(params.model)
-    const client = new Anthropic({ apiKey })
+    const baseURL = getAnthropicBaseURL()
+    const client = new Anthropic({
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
+    })
 
     const stream = await client.beta.messages.create(
       {

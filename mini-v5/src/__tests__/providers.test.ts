@@ -10,6 +10,8 @@ const OLD_ENV = { ...process.env }
 beforeEach(() => {
   delete process.env.CLAUDE_CODE_USE_OPENAI
   delete process.env.ANTHROPIC_API_KEY
+  delete process.env.ANTHROPIC_AUTH_TOKEN
+  delete process.env.ANTHROPIC_BASE_URL
   delete process.env.OPENAI_API_KEY
 })
 
@@ -36,6 +38,25 @@ describe('getAPIProvider', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant'
     process.env.OPENAI_API_KEY = 'sk-openai'
     expect(getAPIProvider()).toBe('firstParty')
+  })
+
+  test('returns firstParty when ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN are set', () => {
+    process.env.ANTHROPIC_BASE_URL = 'http://localhost:11434'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'test'
+    expect(getAPIProvider()).toBe('firstParty')
+  })
+
+  test('returns firstParty when ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY are set', () => {
+    process.env.ANTHROPIC_BASE_URL = 'http://localhost:11434'
+    process.env.ANTHROPIC_API_KEY = 'sk-ant'
+    expect(getAPIProvider()).toBe('firstParty')
+  })
+
+  test('CLAUDE_CODE_USE_OPENAI overrides ANTHROPIC_BASE_URL', () => {
+    process.env.CLAUDE_CODE_USE_OPENAI = '1'
+    process.env.ANTHROPIC_BASE_URL = 'http://localhost:11434'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'test'
+    expect(getAPIProvider()).toBe('openai')
   })
 })
 

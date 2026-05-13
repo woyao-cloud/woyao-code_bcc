@@ -16,8 +16,12 @@ export const OPENAI_MODEL_MAP: Record<string, string> = {
   'o3-mini': 'o3-mini',
 }
 
+/**
+ * Resolve model name for OpenAI-compatible APIs.
+ * Passes through unknown models as-is (supports custom models like deepseek-v4, kimi-k2.5, etc.)
+ */
 export function resolveOpenAIModel(anthropicModel: string): string {
-  return OPENAI_MODEL_MAP[anthropicModel] || 'gpt-4o'
+  return OPENAI_MODEL_MAP[anthropicModel] || anthropicModel
 }
 
 export const OPENAI_DEFAULT_MODEL = 'gpt-4o'
