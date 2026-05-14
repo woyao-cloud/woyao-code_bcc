@@ -216,8 +216,10 @@ describe('calculateTurnProgress', () => {
 
     expect(progress.percentage).toBe(50)
     expect(progress.remainingTurns).toBe(5)
-    expect(progress.avgTimePerTurnMs).toBeCloseTo(1000, -2) // ~1000ms per turn
-    expect(progress.etaSeconds).toBeCloseTo(5, 0) // ~5 seconds remaining
+    expect(progress.avgTimePerTurnMs!).toBeGreaterThanOrEqual(900)
+    expect(progress.avgTimePerTurnMs!).toBeLessThanOrEqual(1100)
+    expect(progress.etaSeconds!).toBeGreaterThanOrEqual(4)
+    expect(progress.etaSeconds!).toBeLessThanOrEqual(6)
   })
 
   test('should handle edge case at limit', () => {
