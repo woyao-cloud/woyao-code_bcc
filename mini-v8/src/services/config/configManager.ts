@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Configuration system for mini-v7.
  * Reads/writes .claude-code-mini/config.json
  * Supports configurable path via setConfigDir() for testing.

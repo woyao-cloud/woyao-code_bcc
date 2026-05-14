@@ -560,13 +560,14 @@ async function runConversationTurn(messages: BetaMessageParam[]) {
 }
 
 function safeJsonMerge(
-  _existing: Record<string, unknown>,
+  existing: Record<string, unknown>,
   partial: string,
 ): Record<string, unknown> {
   try {
-    return JSON.parse(partial) as Record<string, unknown>
+    const parsed = JSON.parse(partial) as Record<string, unknown>
+    return { ...existing, ...parsed }
   } catch {
-    return {}
+    return existing
   }
 }
 

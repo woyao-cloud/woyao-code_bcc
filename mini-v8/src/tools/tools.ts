@@ -1,4 +1,4 @@
-﻿import type { Tool, Tools } from '../Tool.js'
+import type { Tool, Tools } from '../Tool.js'
 import { BashTool } from './builtin/BashTool/BashTool.js'
 import { FileReadTool } from './builtin/FileReadTool/FileReadTool.js'
 import { FileWriteTool } from './builtin/FileWriteTool/FileWriteTool.js'

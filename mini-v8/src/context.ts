@@ -1,4 +1,4 @@
-﻿import { loadClaudeMdFiles } from './utils/claudemd.js'
+import { loadClaudeMdFiles } from './utils/claudemd.js'
 import { getIsGit, getBranch } from './utils/git.js'
 import { getCwd } from './bootstrap/state.js'
 import {

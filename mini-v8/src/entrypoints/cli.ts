@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bun
+#!/usr/bin/env bun
 import { getSystemContext } from '../context.js'
 import { getTools, registerMCPTools } from '../tools/tools.js'
 import { streamClaudeAPI } from '../services/api/claude.js'
