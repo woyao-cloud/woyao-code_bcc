@@ -67,6 +67,7 @@ export function getSessionId(): string | null {
 
 export function endSession(): void {
   sessionId = null
+  lastExtractionTokenCount = 0
   extractedNotes = []
 }
 
@@ -157,9 +158,25 @@ export function extractSessionNotes(
 
 export function persistSessionMemory(notes: SessionMemoryNote[]): void {
   if (!sessionId) return
+  persistSessionMemoryWithTokenCount(notes)
+}
+
+export function persistSessionMemoryWithTokenCount(
+  notes: SessionMemoryNote[],
+  currentTokenCount?: number,
+): void {
+  if (!sessionId) return
   const path = getSessionMemoryPath(sessionId)
   const existing = readSessionMemory(sessionId)
   const allNotes = mergeNotes(existing, notes, config.maxNotes)
+  extractedNotes = allNotes
+  if (
+    typeof currentTokenCount === 'number' &&
+    Number.isFinite(currentTokenCount) &&
+    currentTokenCount >= 0
+  ) {
+    lastExtractionTokenCount = currentTokenCount
+  }
 
   const lines = ['# Session Memory', '', 'Session: ' + sessionId, '']
   const byCategory = groupBy(allNotes, n => n.category)
@@ -187,6 +204,20 @@ export function readSessionMemory(id: string): SessionMemoryNote[] {
   }
 }
 
+export function updateSessionMemoryFromMessages(
+  messages: BetaMessageParam[],
+): SessionMemoryNote[] {
+  if (!sessionId || messages.length === 0) return []
+
+  const notes = extractSessionNotes(messages)
+  if (notes.length === 0) {
+    return []
+  }
+
+  persistSessionMemoryWithTokenCount(notes, estimateTotalTokens(messages))
+  return notes
+}
+
 export function getSessionMemoryForPrompt(id: string): string {
   const notes = readSessionMemory(id)
   if (notes.length === 0) return ''
@@ -201,6 +232,17 @@ export function getSessionMemoryForPrompt(id: string): string {
     lines.push('')
   }
   return lines.join('\n')
+}
+
+export function getSessionMemorySummaryForCompact(
+  messages?: BetaMessageParam[],
+): string {
+  if (messages && messages.length > 0) {
+    updateSessionMemoryFromMessages(messages)
+  }
+
+  if (!sessionId) return ''
+  return getSessionMemoryForPrompt(sessionId).trim()
 }
 
 // Helpers

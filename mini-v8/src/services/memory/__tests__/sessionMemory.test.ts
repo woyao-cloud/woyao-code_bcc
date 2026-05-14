@@ -13,8 +13,11 @@ import {
   shouldExtractMemory,
   extractSessionNotes,
   persistSessionMemory,
+  getSessionMemoryForPrompt,
+  getSessionMemorySummaryForCompact,
   readSessionMemory,
   setSessionMemoryDir,
+  updateSessionMemoryFromMessages,
   type SessionMemoryNote,
 } from '../sessionMemory.js'
 
@@ -125,5 +128,35 @@ describe('persistSessionMemory and readSessionMemory', () => {
       expect(read.length).toBeGreaterThan(0)
       expect(read[0]?.content).toBe('Decided to use PostgreSQL')
     }
+  })
+
+  test('updates session memory from current messages and returns compact summary', () => {
+    const notes = updateSessionMemoryFromMessages([
+      { role: 'user', content: 'Fix auth retry flow in src/auth.ts' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: "I'll inspect src/auth.ts and patch retry handling.",
+          },
+        ],
+      },
+    ])
+
+    expect(notes.length).toBeGreaterThan(0)
+
+    const id = getSessionId()
+    expect(id).not.toBe(null)
+
+    if (id) {
+      const promptText = getSessionMemoryForPrompt(id)
+      expect(promptText).toContain('Session Memory')
+      expect(promptText).toContain('Fix auth retry flow')
+    }
+
+    const compactSummary = getSessionMemorySummaryForCompact()
+    expect(compactSummary).toContain('Session Memory')
+    expect(compactSummary).toContain('Fix auth retry flow')
   })
 })

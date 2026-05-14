@@ -52,3 +52,59 @@
 
   如果你要我继续，我建议下一步直接在 mini-v8 落 P0 + P1：我可以先给你出一版补丁，把会话裁剪和旧 tool 结果压缩真正做起
   来。
+
+
+#  P0 + P1
+
+ 已继续做完 P0 + P1，改动落在 mini-v8，重点是把会话裁剪从“粗暴截断”升级成“先清理旧 tool result，再按模型窗口做摘要
+  compact”。
+
+  核心改动有三块。第一，修了历史正确性问题：CLI 和 agent runner 现在都会把“无 tool_use 的最终 assistant 文本”写回
+  messages，不再丢上下文；同时把原来错误的 splice(0, messages.length - 2, ...) 替换成整数组替换，避免 /compact 和自动
+  compact 复制尾部消息。/D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/entrypoints/cli.ts:98 /D:/
+  claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/entrypoints/cli.ts:532 /D:/claude-code-project/claude-
+  code-best/woyao-code_bcc/mini-v8/src/agents/agentRunner.ts:80 /D:/claude-code-project/claude-code-best/woyao-code_bcc/
+  mini-v8/src/agents/agentRunner.ts:290
+
+  第二，重写了 autoCompact.ts 的策略。needsCompaction() 现在支持按模型窗口判断，不再只盯死 100k；compactMessages() 会插
+  入一条简短 summary，并在保留尾部时回补必要的 tool_use/tool_result 配对，避免截断后上下文失真；另外新增了
+  microcompactToolResults()，会优先把旧的 Read/Grep/Glob/Bash/WebFetch/WebSearch 结果内容替换成短 stub，只保留最近几条完
+  整结果，这一层通常能省掉最多 token。/D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/services/
+  compact/autoCompact.ts:7 /D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/services/compact/
+  autoCompact.ts:194 /D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/services/compact/
+  autoCompact.ts:206
+
+  第三，补了针对性测试，覆盖模型感知阈值、summary compact、tool pair 保留和 microcompact 行为，bun test src/__tests__/
+  autoCompact.test.ts 已通过 19/19。/D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/__tests__/
+  autoCompact.test.ts:43 /D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/__tests__/
+  autoCompact.test.ts:194
+
+  bun run typecheck 仍然失败，但看起来是 mini-v8 里原本就存在的旧问题，不是这次改动新引入的：src/__tests__/
+  turnLimit.test.ts 的 toBeCloseTo 类型声明缺失，以及 src/utils/turnLimit.ts 的几处已有严格空值错误。
+
+# P2
+
+   P2 已接上，mini-v8 现在的 full compact 会优先消费 session memory，不再只是把 notes 写到磁盘里却不用。
+
+  具体来说，我把 session memory 补成了一个可被 compact 消费的闭环：updateSessionMemoryFromMessages() 会先从当前消息提炼
+  并持久化 notes，同时更新提取基线；getSessionMemorySummaryForCompact() 则返回给 compact 用的摘要文本。/D:/claude-code-
+  project/claude-code-best/woyao-code_bcc/mini-v8/src/services/memory/sessionMemory.ts:164 /D:/claude-code-project/
+  claude-code-best/woyao-code_bcc/mini-v8/src/services/memory/sessionMemory.ts:207 /D:/claude-code-project/claude-code-
+  best/woyao-code_bcc/mini-v8/src/services/memory/sessionMemory.ts:237
+
+  compactMessages() 也升级了：现在支持传 sessionMemorySummary，如果有内容，就会优先生成 "[Earlier conversation
+  summarized from session memory]" 这类 summary；没有时才退回原来的 removed-messages 摘要。/D:/claude-code-project/
+  claude-code-best/woyao-code_bcc/mini-v8/src/services/compact/autoCompact.ts:206 主线程和 agent runner 都已经改成 full
+  compact 前先拉 session memory summary 再 compact。/D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/
+  entrypoints/cli.ts:121 /D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/agents/agentRunner.ts:100
+
+  验证方面，bun test src/__tests__/autoCompact.test.ts src/services/memory/__tests__/sessionMemory.test.ts 已通过，
+  30/30。新增测试覆盖了 session memory 刷新、compact 优先使用 session memory summary，以及原有 tool pair / microcompact
+  行为没有回退。/D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/__tests__/autoCompact.test.ts:154 /
+  D:/claude-code-project/claude-code-best/woyao-code_bcc/mini-v8/src/services/memory/__tests__/sessionMemory.test.ts:129
+
+  还有一个事实需要单独说明：mini-v8 全量 bun run typecheck 之前就有未解决错误，仍然卡在 turnLimit 相关测试和实现上，不是
+  这次 session-memory compact 改动新引入的。
+
+  下一步最自然的是做 P3 的后半段：把 session memory 注入系统 prompt 的策略也收紧，避免它既参与 compact summary、又在常规
+  prompt 里长期重复注入，造成二次 token 浪费。

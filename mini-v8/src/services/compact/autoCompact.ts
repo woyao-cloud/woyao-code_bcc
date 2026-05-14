@@ -205,8 +205,18 @@ export function needsCompaction(
  */
 export function compactMessages(
   messages: BetaMessageParam[],
-  keepPairs: number = 3,
+  keepPairsOrOptions:
+    | number
+    | {
+        keepPairs?: number
+        sessionMemorySummary?: string
+      } = 3,
 ): BetaMessageParam[] {
+  const options =
+    typeof keepPairsOrOptions === 'number'
+      ? { keepPairs: keepPairsOrOptions }
+      : keepPairsOrOptions
+  const keepPairs = options.keepPairs ?? 3
   if (messages.length <= keepPairs * 2) return messages
 
   const tailSize = Math.min(keepPairs * 2, messages.length - 1)
@@ -218,7 +228,9 @@ export function compactMessages(
   }
 
   const removed = messages.slice(1, startIndex)
-  const summary = generateCompactionSummary(removed)
+  const summary =
+    buildSessionMemoryCompactionSummary(options.sessionMemorySummary) ||
+    generateCompactionSummary(removed)
   const kept = [messages[0]]
 
   if (summary) {
@@ -231,6 +243,17 @@ export function compactMessages(
   kept.push(...messages.slice(startIndex))
 
   return kept
+}
+
+function buildSessionMemoryCompactionSummary(
+  summary: string | undefined,
+): string {
+  if (!summary) return ''
+
+  const normalized = summary.trim()
+  if (!normalized) return ''
+
+  return '[Earlier conversation summarized from session memory]\n' + normalized
 }
 
 /**

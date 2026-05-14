@@ -24,6 +24,7 @@ import {
 import { withRetry, isRetryableError } from '../services/retry.js'
 import { getCwd } from '../bootstrap/state.js'
 import { getSystemContext, getUserContext } from '../context.js'
+import { getSessionMemorySummaryForCompact } from '../services/memory/sessionMemory.js'
 import type {
   AgentDefinition,
   AgentInstance,
@@ -97,7 +98,13 @@ function applyConversationCompaction(
   replaceMessages(messages, microcompacted)
 
   if (needsCompaction(messages, model)) {
-    replaceMessages(messages, compactMessages(messages))
+    const sessionMemorySummary = getSessionMemorySummaryForCompact(messages)
+    replaceMessages(
+      messages,
+      compactMessages(messages, {
+        sessionMemorySummary,
+      }),
+    )
   }
 }
 

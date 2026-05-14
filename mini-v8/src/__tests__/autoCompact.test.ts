@@ -156,6 +156,33 @@ describe('compactMessages', () => {
     expect(serialized).toContain('tu_old')
     expect(compacted.some(msg => Array.isArray(msg.content))).toBe(true)
   })
+
+  test('prefers session memory summary when provided', () => {
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'initial' },
+      { role: 'assistant', content: 'step 1' },
+      { role: 'user', content: 'step 2' },
+      { role: 'assistant', content: 'step 3' },
+      { role: 'user', content: 'step 4' },
+      { role: 'assistant', content: 'step 5' },
+      { role: 'user', content: 'latest ask' },
+      { role: 'assistant', content: 'latest answer' },
+    ]
+
+    const compacted = compactMessages(msgs, {
+      keepPairs: 1,
+      sessionMemorySummary:
+        '## Session Memory (auto-extracted)\n\n### User Requests\n- Carry forward the auth migration plan',
+    })
+
+    expect(String(compacted[1]?.content)).toContain(
+      'Earlier conversation summarized from session memory',
+    )
+    expect(String(compacted[1]?.content)).toContain(
+      'Carry forward the auth migration plan',
+    )
+    expect(String(compacted[1]?.content)).not.toContain('messages covering')
+  })
 })
 
 describe('generateCompactionSummary', () => {

@@ -57,8 +57,8 @@ import {
   shouldExtractMemory,
   extractSessionNotes,
   persistSessionMemory,
-  getSessionMemoryForPrompt,
   getSessionId,
+  getSessionMemorySummaryForCompact,
 } from '../services/memory/sessionMemory.js'
 import { getTeamMemoryForPrompt } from '../services/memory/teamMemorySync.js'
 import {
@@ -119,7 +119,10 @@ function applyConversationCompaction(
   const didMicrocompact = replaceMessages(messages, nextMessages)
 
   if (forceCompact || needsCompaction(messages, model)) {
-    nextMessages = compactMessages(messages)
+    const sessionMemorySummary = getSessionMemorySummaryForCompact(messages)
+    nextMessages = compactMessages(messages, {
+      sessionMemorySummary,
+    })
     const didCompact = replaceMessages(messages, nextMessages)
     return { didMicrocompact, didCompact }
   }
