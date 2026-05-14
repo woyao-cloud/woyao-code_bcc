@@ -5,6 +5,7 @@
 
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { getMaxTokens } from '../../utils/model/model.js'
+import { SESSION_MEMORY_COMPACTION_MARKER } from '../memory/sessionMemory.js'
 
 const TOKEN_LIMIT_RATIO = 0.7
 const ESTIMATED_MAX_TOKENS = 100_000
@@ -253,7 +254,7 @@ function buildSessionMemoryCompactionSummary(
   const normalized = summary.trim()
   if (!normalized) return ''
 
-  return '[Earlier conversation summarized from session memory]\n' + normalized
+  return SESSION_MEMORY_COMPACTION_MARKER + '\n' + normalized
 }
 
 /**

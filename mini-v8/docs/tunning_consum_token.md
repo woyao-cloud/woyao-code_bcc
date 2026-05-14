@@ -108,3 +108,21 @@
 
   下一步最自然的是做 P3 的后半段：把 session memory 注入系统 prompt 的策略也收紧，避免它既参与 compact summary、又在常规
   prompt 里长期重复注入，造成二次 token 浪费。
+
+  #  已完成 P3 后半段。
+
+  在 mini-v8/src/services/memory/sessionMemory.ts:27 和 mini-v8/src/context.ts:324 里加了一套更紧的注入策略：session
+  memory 现在支持按 maxNotesPerCategory 和 maxChars 裁剪；auto 模式只会在“fresh/reset”的会话切片里注入，一旦当前消息里已
+  经有 session-memory-based compact summary，就停止继续往常规 system prompt 重复注入，避免双重 token 消耗。
+
+  同时把 compact 标记统一到了 mini-v8/src/services/compact/autoCompact.ts:257，并让 mini-v8/src/entrypoints/cli.ts:418
+  和 mini-v8/src/agents/agentRunner.ts:219 每轮都把当前 messages 传给 getSystemContext()，这样 full compact 写进去的
+  summary 会立刻反向抑制后续 prompt 注入，形成闭环。
+
+  测试已补在 mini-v8/src__tests__/context.test.ts:56 和 mini-v8/src/services/memory__tests__/sessionMemory.test.ts:182。
+  验证结果：
+
+  - bun test src/__tests__/context.test.ts src/services/memory/__tests__/sessionMemory.test.ts src/__tests__/
+    autoCompact.test.ts 通过，38/38
+  - bun run typecheck 仍失败，但只剩仓库原有的 src/__tests__/turnLimit.test.ts 和 src/utils/turnLimit.ts 报错，没有新增
+    本次改动相关类型错误

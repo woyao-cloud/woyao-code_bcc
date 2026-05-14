@@ -24,12 +24,28 @@ export interface SessionMemoryConfig {
   maxNotes: number
 }
 
+export interface SessionMemoryPromptOptions {
+  maxNotesPerCategory?: number
+  maxChars?: number
+}
+
+export type SessionMemoryPromptMode = 'never' | 'auto' | 'always'
+
 const DEFAULT_CONFIG: SessionMemoryConfig = {
   enabled: false,
   minTokensForInit: 2000,
   minTokensBetweenUpdate: 1000,
   maxNotes: 30,
 }
+
+const DEFAULT_PROMPT_MAX_NOTES_PER_CATEGORY = 3
+const DEFAULT_PROMPT_MAX_CHARS = 900
+const COMPACT_PROMPT_MAX_NOTES_PER_CATEGORY = 5
+const COMPACT_PROMPT_MAX_CHARS = 2000
+const SESSION_MEMORY_TRUNCATED_MESSAGE =
+  '[Session memory truncated to reduce token usage.]'
+export const SESSION_MEMORY_COMPACTION_MARKER =
+  '[Earlier conversation summarized from session memory]'
 
 let config: SessionMemoryConfig = { ...DEFAULT_CONFIG }
 let sessionId: string | null = null
@@ -218,20 +234,29 @@ export function updateSessionMemoryFromMessages(
   return notes
 }
 
-export function getSessionMemoryForPrompt(id: string): string {
+export function getSessionMemoryForPrompt(
+  id: string,
+  options: SessionMemoryPromptOptions = {},
+): string {
   const notes = readSessionMemory(id)
   if (notes.length === 0) return ''
 
+  const maxNotesPerCategory = Math.max(
+    1,
+    options.maxNotesPerCategory ?? DEFAULT_PROMPT_MAX_NOTES_PER_CATEGORY,
+  )
+  const maxChars = Math.max(0, options.maxChars ?? DEFAULT_PROMPT_MAX_CHARS)
   const lines = ['', '## Session Memory (auto-extracted)', '']
   const byCategory = groupBy(notes, n => n.category)
   for (const [category, catNotes] of Object.entries(byCategory)) {
     lines.push('### ' + formatCategory(category))
-    for (const note of catNotes.slice(-5)) {
+    for (const note of catNotes.slice(-maxNotesPerCategory)) {
       lines.push('- ' + note.content)
     }
     lines.push('')
   }
-  return lines.join('\n')
+
+  return truncatePromptText(lines.join('\n'), maxChars)
 }
 
 export function getSessionMemorySummaryForCompact(
@@ -242,7 +267,32 @@ export function getSessionMemorySummaryForCompact(
   }
 
   if (!sessionId) return ''
-  return getSessionMemoryForPrompt(sessionId).trim()
+  return getSessionMemoryForPrompt(sessionId, {
+    maxNotesPerCategory: COMPACT_PROMPT_MAX_NOTES_PER_CATEGORY,
+    maxChars: COMPACT_PROMPT_MAX_CHARS,
+  }).trim()
+}
+
+export function hasSessionMemoryCompactionSummary(
+  messages: BetaMessageParam[],
+): boolean {
+  return messages.some(message =>
+    getMessageText(message).includes(SESSION_MEMORY_COMPACTION_MARKER),
+  )
+}
+
+export function shouldInjectSessionMemoryIntoPrompt(
+  messages: BetaMessageParam[] | undefined,
+  mode: SessionMemoryPromptMode = 'auto',
+): boolean {
+  if (mode === 'never') return false
+  if (!sessionId || readSessionMemory(sessionId).length === 0) return false
+  if (mode === 'always') return true
+  if (!messages || messages.length === 0) return false
+  if (hasSessionMemoryCompactionSummary(messages)) return false
+
+  // Auto mode only injects into a fresh or reset conversation slice.
+  return messages.length <= 2
 }
 
 // Helpers
@@ -396,4 +446,43 @@ function parseSessionMemoryMarkdown(raw: string): SessionMemoryNote[] {
   }
 
   return notes
+}
+
+function truncatePromptText(text: string, maxChars: number): string {
+  if (maxChars <= 0 || text.length <= maxChars) {
+    return text
+  }
+
+  const suffix = '\n\n' + SESSION_MEMORY_TRUNCATED_MESSAGE
+  const budget = maxChars - suffix.length
+  if (budget <= 0) {
+    return SESSION_MEMORY_TRUNCATED_MESSAGE
+  }
+
+  return text.slice(0, budget).trimEnd() + suffix
+}
+
+function getMessageText(message: BetaMessageParam): string {
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  if (!Array.isArray(message.content)) {
+    return ''
+  }
+
+  return message.content
+    .map(block => {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        'text' in block &&
+        typeof block.text === 'string'
+      ) {
+        return block.text
+      }
+
+      return ''
+    })
+    .join(' ')
 }

@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 
 import {
   initSession,
@@ -15,9 +16,12 @@ import {
   persistSessionMemory,
   getSessionMemoryForPrompt,
   getSessionMemorySummaryForCompact,
+  hasSessionMemoryCompactionSummary,
   readSessionMemory,
   setSessionMemoryDir,
+  shouldInjectSessionMemoryIntoPrompt,
   updateSessionMemoryFromMessages,
+  SESSION_MEMORY_COMPACTION_MARKER,
   type SessionMemoryNote,
 } from '../sessionMemory.js'
 
@@ -158,5 +162,101 @@ describe('persistSessionMemory and readSessionMemory', () => {
     const compactSummary = getSessionMemorySummaryForCompact()
     expect(compactSummary).toContain('Session Memory')
     expect(compactSummary).toContain('Fix auth retry flow')
+  })
+})
+
+describe('session memory prompt policy', () => {
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'smem-policy-'))
+    setSessionMemoryDir(tempDir)
+    initSession()
+  })
+
+  afterEach(() => {
+    endSession()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {}
+  })
+
+  test('limits notes per category and truncates prompt text', () => {
+    persistSessionMemory([
+      {
+        id: 'req-1',
+        category: 'user-request',
+        content: 'Older note should be dropped first',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'req-2',
+        category: 'user-request',
+        content: 'Keep this request note',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'req-3',
+        category: 'user-request',
+        content: 'Keep this newer request note',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'decision-1',
+        category: 'decision',
+        content:
+          'Use a compact session memory prompt budget for reset turns and stop reinjecting notes after compaction has already summarized them.',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+
+    const id = getSessionId()
+    expect(id).not.toBe(null)
+
+    if (id) {
+      const promptText = getSessionMemoryForPrompt(id, {
+        maxNotesPerCategory: 2,
+        maxChars: 200,
+      })
+
+      expect(promptText).toContain('Keep this request note')
+      expect(promptText).toContain('Keep this newer request note')
+      expect(promptText).not.toContain('Older note should be dropped first')
+      expect(promptText).toContain(
+        'Session memory truncated to reduce token usage',
+      )
+      expect(promptText.length).toBeLessThanOrEqual(200)
+    }
+  })
+
+  test('auto mode stops injecting after a session-memory compaction summary', () => {
+    persistSessionMemory([
+      {
+        id: 'note-1',
+        category: 'decision',
+        content: 'Carry forward the auth migration plan',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+
+    const freshMessages: BetaMessageParam[] = [
+      { role: 'user', content: 'Continue after /clear' },
+    ]
+    expect(shouldInjectSessionMemoryIntoPrompt(freshMessages, 'auto')).toBe(
+      true,
+    )
+
+    const compactedMessages: BetaMessageParam[] = [
+      { role: 'user', content: 'Earlier conversation' },
+      {
+        role: 'assistant',
+        content:
+          SESSION_MEMORY_COMPACTION_MARKER +
+          '\n## Session Memory (auto-extracted)\n- Carry forward the auth migration plan',
+      },
+    ]
+
+    expect(hasSessionMemoryCompactionSummary(compactedMessages)).toBe(true)
+    expect(shouldInjectSessionMemoryIntoPrompt(compactedMessages, 'auto')).toBe(
+      false,
+    )
   })
 })

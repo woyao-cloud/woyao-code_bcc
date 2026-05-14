@@ -1,11 +1,18 @@
 import { loadClaudeMdFiles } from './utils/claudemd.js'
 import { getGitStatus, GitStatus } from './utils/git.js'
 import { getCwd } from './bootstrap/state.js'
+import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import {
   discoverSkills,
   formatSkillsForPrompt,
 } from './services/skill/skillLoader.js'
 import { formatMemoriesForPrompt } from './services/memory/memoryStore.js'
+import {
+  getSessionId,
+  getSessionMemoryForPrompt,
+  shouldInjectSessionMemoryIntoPrompt,
+  type SessionMemoryPromptMode,
+} from './services/memory/sessionMemory.js'
 import { getAgentsForPrompt } from './agents/agentRegistry.js'
 import { getTeamsForPrompt } from './agents/teamManager.js'
 
@@ -23,6 +30,10 @@ export interface ContextConfig {
   includeAgents?: boolean
   includeTeams?: boolean
   includeEnvironment?: boolean
+  sessionMemoryMode?: SessionMemoryPromptMode
+  sessionMemoryPromptMaxChars?: number
+  sessionMemoryPromptMaxNotesPerCategory?: number
+  conversationMessages?: BetaMessageParam[]
   maxClaudeMdFiles?: number
   maxClaudeMdContentLength?: number
 }
@@ -34,6 +45,7 @@ export interface ContextParts {
   claudeMd?: string[]
   skills?: string
   memories?: string
+  sessionMemory?: string
   agents?: string
   teams?: string
   environment?: string
@@ -56,6 +68,9 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   includeAgents: true,
   includeTeams: true,
   includeEnvironment: false,
+  sessionMemoryMode: 'auto',
+  sessionMemoryPromptMaxChars: 900,
+  sessionMemoryPromptMaxNotesPerCategory: 3,
   maxClaudeMdFiles: 3,
   maxClaudeMdContentLength: 2000,
 }
@@ -144,6 +159,11 @@ export async function getSystemContext(
   if (mergedConfig.includeMemories) {
     const memoriesText = formatMemoriesForPrompt()
     if (memoriesText) parts.push(memoriesText)
+  }
+
+  if (mergedConfig.sessionMemoryMode !== 'never') {
+    const sessionMemoryText = getSessionMemoryContext(mergedConfig)
+    if (sessionMemoryText) parts.push(sessionMemoryText)
   }
 
   // Agents
@@ -246,6 +266,10 @@ export async function getEnhancedContext(
     parts.memories = formatMemoriesForPrompt() || undefined
   }
 
+  if (mergedConfig.sessionMemoryMode !== 'never') {
+    parts.sessionMemory = getSessionMemoryContext(mergedConfig) || undefined
+  }
+
   // Agents
   if (mergedConfig.includeAgents) {
     parts.agents = getAgentsForPrompt() || undefined
@@ -295,6 +319,27 @@ export interface UserContext {
 
 export async function getUserContextObject(): Promise<UserContext> {
   return {}
+}
+
+function getSessionMemoryContext(config: ContextConfig): string {
+  const sessionId = getSessionId()
+  if (!sessionId) {
+    return ''
+  }
+
+  if (
+    !shouldInjectSessionMemoryIntoPrompt(
+      config.conversationMessages,
+      config.sessionMemoryMode ?? 'auto',
+    )
+  ) {
+    return ''
+  }
+
+  return getSessionMemoryForPrompt(sessionId, {
+    maxChars: config.sessionMemoryPromptMaxChars,
+    maxNotesPerCategory: config.sessionMemoryPromptMaxNotesPerCategory,
+  })
 }
 
 // ============================================================================

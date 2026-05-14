@@ -415,7 +415,10 @@ async function runConversationTurn(
     const activeModel = resolveModel()
     applyConversationCompaction(messages, activeModel)
 
-    const systemContext = await getSystemContext()
+    const systemContext = await getSystemContext(undefined, {
+      conversationMessages: messages,
+      sessionMemoryMode: 'auto',
+    })
     const systemPrompt =
       `You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).\n\n` +
       systemContext

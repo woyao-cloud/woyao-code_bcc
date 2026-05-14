@@ -167,7 +167,6 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
 
   // Build agent system prompt
   const agentSystemPrompt = agentDef.getSystemPrompt()
-  const systemContext = await getSystemContext()
 
   // Build messages
   const messages: BetaMessageParam[] = [...parentMessages]
@@ -214,7 +213,13 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
           async () => {
             const stream = streamClaudeAPI({
               messages,
-              systemPrompt: agentSystemPrompt + '\n\n' + systemContext,
+              systemPrompt:
+                agentSystemPrompt +
+                '\n\n' +
+                (await getSystemContext(undefined, {
+                  conversationMessages: messages,
+                  sessionMemoryMode: 'auto',
+                })),
               tools: filteredTools,
               model,
             })
