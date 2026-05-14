@@ -19,6 +19,7 @@ import { logError, logDebug } from '../utils/log.js'
 import {
   needsCompaction,
   compactMessages,
+  microcompactToolResults,
 } from '../services/compact/autoCompact.js'
 import { withRetry, isRetryableError } from '../services/retry.js'
 import { getCwd } from '../bootstrap/state.js'
@@ -74,6 +75,30 @@ export interface AgentRunOptions {
     toolName: string,
     input: Record<string, unknown>,
   ) => Promise<boolean>
+}
+
+function replaceMessages(
+  target: BetaMessageParam[],
+  next: BetaMessageParam[],
+): boolean {
+  if (target === next) {
+    return false
+  }
+
+  target.splice(0, target.length, ...next)
+  return true
+}
+
+function applyConversationCompaction(
+  messages: BetaMessageParam[],
+  model: string,
+): void {
+  const microcompacted = microcompactToolResults(messages)
+  replaceMessages(messages, microcompacted)
+
+  if (needsCompaction(messages, model)) {
+    replaceMessages(messages, compactMessages(messages))
+  }
 }
 
 /**
@@ -156,9 +181,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
       turnCount++
 
       // Auto-compact if needed
-      if (needsCompaction(messages)) {
-        messages.splice(0, messages.length - 2, ...compactMessages(messages))
-      }
+      applyConversationCompaction(messages, model)
 
       const toolUses: Array<{
         id: string
@@ -264,12 +287,6 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
         contentOutput.push(fullText)
       }
 
-      // No tool calls => agent is done
-      if (toolUses.length === 0) {
-        break
-      }
-
-      // Add assistant message with tool calls
       const assistantContent: ContentItem[] = contentBlocks.map(b =>
         b.type === 'tool_use'
           ? {
@@ -280,10 +297,17 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
             }
           : { type: 'text' as const, text: b.text },
       )
-      messages.push({
-        role: 'assistant',
-        content: assistantContent,
-      })
+      if (assistantContent.length > 0) {
+        messages.push({
+          role: 'assistant',
+          content: assistantContent,
+        })
+      }
+
+      // No tool calls => agent is done
+      if (toolUses.length === 0) {
+        break
+      }
 
       // Execute tool calls
       const toolResults: ContentItem[] = []

@@ -4,6 +4,8 @@ import {
   needsCompaction,
   compactMessages,
   generateCompactionSummary,
+  microcompactToolResults,
+  MICROCOMPACT_CLEAR_MESSAGE,
 } from '../services/compact/autoCompact.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 
@@ -53,6 +55,13 @@ describe('needsCompaction', () => {
     const msgs: BetaMessageParam[] = [{ role: 'user', content: longText }]
     expect(needsCompaction(msgs)).toBe(true)
   })
+
+  test('uses model context window when provided', () => {
+    const mediumText = 'a'.repeat(80_000 * 4)
+    const msgs: BetaMessageParam[] = [{ role: 'user', content: mediumText }]
+    expect(needsCompaction(msgs)).toBe(true)
+    expect(needsCompaction(msgs, 'claude-opus-4-20250514')).toBe(false)
+  })
 })
 
 describe('compactMessages', () => {
@@ -80,10 +89,14 @@ describe('compactMessages', () => {
     ]
 
     const compacted = compactMessages(msgs, 2)
-    expect(compacted.length).toBe(5)
+    expect(compacted.length).toBe(6)
     expect(compacted[0].content).toBe('first')
     expect(compacted[compacted.length - 1].content).toBe('final')
     expect(compacted[compacted.length - 2].content).toBe('last')
+    expect(typeof compacted[1]?.content).toBe('string')
+    expect(String(compacted[1]?.content)).toContain(
+      'Earlier conversation summary',
+    )
   })
 
   test('returns all messages when count <= keepPairs*2', () => {
@@ -105,7 +118,43 @@ describe('compactMessages', () => {
       })
     }
     const compacted = compactMessages(msgs)
-    expect(compacted.length).toBe(7) // first + 6 (3 pairs * 2)
+    expect(compacted.length).toBe(8) // first + summary + 6 (3 pairs * 2)
+  })
+
+  test('preserves tool_use and tool_result pairs in kept tail', () => {
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'initial' },
+      { role: 'assistant', content: 'analysis 0' },
+      { role: 'user', content: 'follow up 0' },
+      { role: 'assistant', content: 'analysis 1' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_old',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_old',
+            content: 'old file contents',
+          },
+        ],
+      },
+      { role: 'assistant', content: 'final answer' },
+    ]
+
+    const compacted = compactMessages(msgs, 1)
+    const serialized = JSON.stringify(compacted)
+    expect(serialized).toContain('tu_old')
+    expect(compacted.some(msg => Array.isArray(msg.content))).toBe(true)
   })
 })
 
@@ -139,5 +188,108 @@ describe('generateCompactionSummary', () => {
     const summary = generateCompactionSummary(removed)
     expect(summary).toContain('query0')
     expect(summary).toContain('query4')
+  })
+})
+
+describe('microcompactToolResults', () => {
+  test('clears older compactable tool results and keeps recent ones', () => {
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'start' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_1',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_1', content: 'content-1' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_2',
+            name: 'Grep',
+            input: { pattern: 'x' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_2', content: 'content-2' },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_3',
+            name: 'Bash',
+            input: { command: 'pwd' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_3', content: 'content-3' },
+        ],
+      },
+    ]
+
+    const result = microcompactToolResults(msgs, {
+      triggerThreshold: 2,
+      keepRecent: 1,
+    })
+    const json = JSON.stringify(result)
+    expect(json).toContain(MICROCOMPACT_CLEAR_MESSAGE)
+    expect(json).toContain('content-3')
+    expect(json).not.toContain('content-1')
+    expect(json).not.toContain('content-2')
+  })
+
+  test('does not clear error tool results', () => {
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'start' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_1',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_1',
+            content: 'error payload',
+            is_error: true,
+          },
+        ],
+      },
+    ]
+
+    const result = microcompactToolResults(msgs, {
+      triggerThreshold: 0,
+      keepRecent: 0,
+    })
+    expect(JSON.stringify(result)).toContain('error payload')
   })
 })

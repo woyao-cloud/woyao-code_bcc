@@ -26,6 +26,7 @@ import { loadConfig } from '../services/config/configManager.js'
 import {
   needsCompaction,
   compactMessages,
+  microcompactToolResults,
 } from '../services/compact/autoCompact.js'
 import { withRetry, isRetryableError } from '../services/retry.js'
 import { createInterface } from 'readline'
@@ -92,6 +93,38 @@ let loadedPlugins: LoadedPlugin[] = []
 
 function getLoadedPlugins(): LoadedPlugin[] {
   return loadedPlugins
+}
+
+function replaceMessages(
+  target: BetaMessageParam[],
+  next: BetaMessageParam[],
+): boolean {
+  if (target === next) {
+    return false
+  }
+
+  target.splice(0, target.length, ...next)
+  return true
+}
+
+function applyConversationCompaction(
+  messages: BetaMessageParam[],
+  model?: string,
+  forceCompact: boolean = false,
+): {
+  didMicrocompact: boolean
+  didCompact: boolean
+} {
+  let nextMessages = microcompactToolResults(messages)
+  const didMicrocompact = replaceMessages(messages, nextMessages)
+
+  if (forceCompact || needsCompaction(messages, model)) {
+    nextMessages = compactMessages(messages)
+    const didCompact = replaceMessages(messages, nextMessages)
+    return { didMicrocompact, didCompact }
+  }
+
+  return { didMicrocompact, didCompact: false }
 }
 
 async function main() {
@@ -242,9 +275,16 @@ async function runREPL(_config: unknown) {
     }
 
     if (line === '/compact') {
-      if (needsCompaction(messages)) {
-        messages.splice(0, messages.length - 2, ...compactMessages(messages))
+      const activeModel = resolveModel()
+      const { didMicrocompact, didCompact } = applyConversationCompaction(
+        messages,
+        activeModel,
+        true,
+      )
+      if (didCompact) {
         process.stderr.write('Conversation compacted.\n')
+      } else if (didMicrocompact) {
+        process.stderr.write('Older tool results compacted.\n')
       } else {
         process.stderr.write(
           'No compaction needed (' + messages.length + ' messages).\n',
@@ -369,9 +409,8 @@ async function runConversationTurn(
       break
     }
 
-    if (needsCompaction(messages)) {
-      messages.splice(0, messages.length - 2, ...compactMessages(messages))
-    }
+    const activeModel = resolveModel()
+    applyConversationCompaction(messages, activeModel)
 
     const systemContext = await getSystemContext()
     const systemPrompt =
@@ -489,6 +528,24 @@ async function runConversationTurn(
     }
 
     if (fullText) process.stdout.write(fullText + '\n')
+
+    const assistantContent: ContentItem[] = contentBlocks.map(b =>
+      b.type === 'tool_use'
+        ? {
+            type: 'tool_use',
+            id: b.id,
+            name: b.name,
+            input: b.input,
+          }
+        : { type: 'text', text: b.text },
+    )
+    if (assistantContent.length > 0) {
+      messages.push({
+        role: 'assistant',
+        content: assistantContent,
+      })
+    }
+
     if (toolUses.length === 0) {
       const currentTurnCount = turnLimitManager.getTurnCount()
       if (currentTurnCount > 1)
@@ -503,21 +560,6 @@ async function runConversationTurn(
         )
       break
     }
-
-    const assistantContent: ContentItem[] = contentBlocks.map(b =>
-      b.type === 'tool_use'
-        ? {
-            type: 'tool_use',
-            id: b.id,
-            name: b.name,
-            input: b.input,
-          }
-        : { type: 'text', text: b.text },
-    )
-    messages.push({
-      role: 'assistant',
-      content: assistantContent,
-    })
 
     const toolResults: ContentItem[] = []
     for (const toolUse of toolUses) {
