@@ -13,8 +13,6 @@ import type {
   ToolConfig,
   ToolInputJSONSchema,
   ToolCategory,
-  ToolRegistry,
-  ToolRegistryEntry,
   ToolExecutionMetadata,
   ToolExecutionHistoryEntry,
 } from './types/tool.js'
@@ -116,6 +114,20 @@ export interface Tool {
 
 /** Map of tool name to Tool */
 export type Tools = Map<string, Tool>
+
+/**
+ * Tool registry entry with metadata (local type for compatibility)
+ */
+export type ToolRegistryEntry = {
+  tool: Tool
+  enabled: boolean
+  registrationTime: number
+}
+
+/**
+ * Tool registry for managing multiple tools (local type for compatibility)
+ */
+export type ToolRegistry = Map<string, ToolRegistryEntry>
 
 // ============================================================
 // Tool Factory

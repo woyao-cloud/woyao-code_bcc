@@ -102,8 +102,8 @@ export interface TypedTool<Input = Record<string, unknown>, Output = any> {
 /**
  * Tool registry entry with metadata
  */
-export type ToolRegistryEntry = {
-  tool: TypedTool
+export type ToolRegistryEntry<T = any> = {
+  tool: T
   enabled: boolean
   registrationTime: number
 }
@@ -111,7 +111,7 @@ export type ToolRegistryEntry = {
 /**
  * Tool registry for managing multiple tools
  */
-export type ToolRegistry = Map<string, ToolRegistryEntry>
+export type ToolRegistry<T = any> = Map<string, ToolRegistryEntry<T>>
 
 // ============================================================================
 // Tool Execution Metadata

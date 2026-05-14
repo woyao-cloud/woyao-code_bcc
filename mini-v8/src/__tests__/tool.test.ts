@@ -222,15 +222,20 @@ describe('buildTool', () => {
   })
 
   test('throws error when required fields are missing', () => {
-    expect(() =>
+    let error: Error | null = null
+    try {
       buildTool({
         name: '',
         description: 'Test',
         inputSchema: { type: 'object', properties: {} },
         prompt: 'Test',
         execute: async () => ({ content: 'ok', success: true }),
-      }),
-    ).toThrow('Tool name is required')
+      })
+    } catch (e) {
+      error = e as Error
+    }
+    expect(error !== null).toBe(true)
+    expect(error?.message).toBe('Tool name is required')
   })
 
   test('sets default values for optional fields', () => {
@@ -264,7 +269,7 @@ describe('Tool Registry', () => {
   test('registers and retrieves a tool', () => {
     registerTool(mockTool)
     const tools = getRegisteredTools()
-    expect(tools).toHaveLength(1)
+    expect(tools.length).toBe(1)
     expect(tools[0].name).toBe('MockTool')
   })
 
@@ -290,15 +295,15 @@ describe('Tool Registry', () => {
     setToolEnabled('MockTool', false)
     const enabledTools = getRegisteredTools(false)
     const allTools = getRegisteredTools(true)
-    expect(enabledTools).toHaveLength(0)
-    expect(allTools).toHaveLength(1)
+    expect(enabledTools.length).toBe(0)
+    expect(allTools.length).toBe(1)
   })
 
   test('clears registry', () => {
     registerTool(mockTool)
     registerTool(mockTool2)
     clearToolRegistry()
-    expect(getRegisteredTools()).toHaveLength(0)
+    expect(getRegisteredTools().length).toBe(0)
   })
 })
 
@@ -311,24 +316,30 @@ describe('Tool Execution History', () => {
       input: { param: 'value' },
     })
     const history = getToolExecutionHistory()
-    expect(history).toHaveLength(1)
+    expect(history.length).toBe(1)
     expect(history[0].toolName).toBe('TestTool')
   })
 
   test('clears execution history', () => {
     recordToolExecution({ toolName: 'TestTool', startTime: Date.now() })
     clearExecutionHistory()
-    expect(getToolExecutionHistory()).toHaveLength(0)
+    expect(getToolExecutionHistory().length).toBe(0)
   })
 })
 
 describe('Tool Helpers', () => {
   test('groups tools by category', () => {
     const fileTool = { ...mockToolWithAlias, name: 'FileTool' }
-    const searchTool = { ...mockTool, name: 'SearchTool', category: 'search' }
+    const searchTool = {
+      ...mockTool,
+      name: 'SearchTool',
+      category: 'search' as const,
+    }
     const grouped = getToolsByCategory([fileTool, searchTool])
-    expect(grouped.get('file')).toHaveLength(1)
-    expect(grouped.get('search')).toHaveLength(1)
+    const fileTools = grouped.get('file')
+    const searchTools = grouped.get('search')
+    expect(fileTools?.length).toBe(1)
+    expect(searchTools?.length).toBe(1)
   })
 
   test('creates success result', () => {

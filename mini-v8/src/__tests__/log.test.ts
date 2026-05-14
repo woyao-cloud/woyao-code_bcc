@@ -61,7 +61,7 @@ describe('logDebug', () => {
   test('logs debug message when debug mode is enabled', () => {
     process.env.CLAUDE_CODE_DEBUG = '1'
     const entry = logDebug('Debug info')
-    expect(entry).not.toBeNull()
+    expect(entry !== null).toBe(true)
     if (entry) {
       expect(entry.level).toBe('debug')
     }
@@ -71,7 +71,7 @@ describe('logDebug', () => {
   test('does not log debug message when debug mode is disabled', () => {
     delete process.env.CLAUDE_CODE_DEBUG
     const entry = logDebug('Debug info')
-    expect(entry).toBeNull()
+    expect(entry === null).toBe(true)
   })
 })
 
@@ -82,7 +82,7 @@ describe('log query functions', () => {
     logWarning('Warn 1')
 
     const logs = getLogs()
-    expect(logs).toHaveLength(3)
+    expect(logs.length).toBe(3)
   })
 
   test('getLogs with limit returns recent logs', () => {
@@ -91,7 +91,7 @@ describe('log query functions', () => {
     }
 
     const logs = getLogs(3)
-    expect(logs).toHaveLength(3)
+    expect(logs.length).toBe(3)
     expect(logs[0].message).toBe('Info 2')
     expect(logs[2].message).toBe('Info 4')
   })
@@ -103,7 +103,7 @@ describe('log query functions', () => {
     logWarning('Warn 1')
 
     const errorLogs = getLogs(undefined, 'error')
-    expect(errorLogs).toHaveLength(2)
+    expect(errorLogs.length).toBe(2)
     expect(errorLogs.every(l => l.level === 'error')).toBe(true)
   })
 
@@ -113,7 +113,7 @@ describe('log query functions', () => {
     logError('Error 2')
 
     const logs = getErrorLogs()
-    expect(logs).toHaveLength(2)
+    expect(logs.length).toBe(2)
     expect(logs.every(l => l.level === 'error')).toBe(true)
   })
 
@@ -123,7 +123,7 @@ describe('log query functions', () => {
     logInfo('Info 1')
 
     const logs = getWarningLogs()
-    expect(logs).toHaveLength(2)
+    expect(logs.length).toBe(2)
     expect(logs.every(l => l.level === 'warn')).toBe(true)
   })
 
@@ -133,7 +133,7 @@ describe('log query functions', () => {
     logError('Error 1')
 
     const logs = getInfoLogs()
-    expect(logs).toHaveLength(2)
+    expect(logs.length).toBe(2)
     expect(logs.every(l => l.level === 'info')).toBe(true)
   })
 })
@@ -147,7 +147,7 @@ describe('getLogsByDateRange', () => {
     logInfo('Test message')
 
     const logs = getLogsByDateRange(yesterday, tomorrow)
-    expect(logs).toHaveLength(1)
+    expect(logs.length).toBe(1)
   })
 })
 
@@ -158,14 +158,14 @@ describe('searchLogs', () => {
     logError('Database connection failed')
 
     const results = searchLogs('database')
-    expect(results).toHaveLength(1)
+    expect(results.length).toBe(1)
     expect(results[0].message).toContain('Database')
   })
 
   test('searches logs with case insensitivity', () => {
     logError('Database ERROR')
     const results = searchLogs('database error')
-    expect(results).toHaveLength(1)
+    expect(results.length).toBe(1)
   })
 
   test('searches logs with level filter', () => {
@@ -173,7 +173,7 @@ describe('searchLogs', () => {
     logError('Database error')
 
     const results = searchLogs('database', 'error')
-    expect(results).toHaveLength(1)
+    expect(results.length).toBe(1)
     expect(results[0].level).toBe('error')
   })
 })
@@ -200,7 +200,7 @@ describe('clearLogs', () => {
     logInfo('Info 1')
     logError('Error 1')
     clearLogs()
-    expect(getLogs()).toHaveLength(0)
+    expect(getLogs().length).toBe(0)
   })
 })
 

@@ -57,7 +57,7 @@ describe('hashRemoteUrl', () => {
 
   test('produces 8-character hex string', () => {
     const hash = hashRemoteUrl('https://github.com/user/repo.git')
-    expect(hash).toHaveLength(8)
+    expect(hash.length).toBe(8)
     expect(hash).toMatch(/^[0-9a-f]{8}$/)
   })
 })
@@ -83,11 +83,11 @@ describe('GitStatus interface', () => {
       hasUnpushedCommits: false,
     }
 
-    expect(status.isGit).toBeTypeOf('boolean')
-    expect(status.root).toBeTypeOf('string')
-    expect(status.branch).toBeTypeOf('string')
-    expect(status.commit).toBeTypeOf('string')
-    expect(status.ahead).toBeTypeOf('number')
-    expect(status.behind).toBeTypeOf('number')
+    expect(typeof status.isGit).toBe('boolean')
+    expect(typeof status.root).toBe('string')
+    expect(typeof status.branch).toBe('string')
+    expect(typeof status.commit).toBe('string')
+    expect(typeof status.ahead).toBe('number')
+    expect(typeof status.behind).toBe('number')
   })
 })
