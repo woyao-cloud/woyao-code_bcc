@@ -1,5 +1,5 @@
 import { loadClaudeMdFiles } from './utils/claudemd.js'
-import { getIsGit, getBranch } from './utils/git.js'
+import { getGitStatus } from './utils/git.js'
 import { getCwd } from './bootstrap/state.js'
 import {
   discoverSkills,
@@ -21,11 +21,32 @@ export async function getSystemContext(
   // Working directory
   parts.push(`Working directory: ${cwd}`)
 
-  // Git context
-  const hasGit = await getIsGit(cwd)
-  if (hasGit) {
-    const branch = await getBranch(cwd)
-    if (branch) parts.push(`Current git branch: ${branch}`)
+  // Git context - enhanced with comprehensive status
+  const gitStatus = await getGitStatus(cwd)
+  if (gitStatus.isGit) {
+    const gitParts: string[] = []
+    if (gitStatus.branch) {
+      gitParts.push(`Branch: ${gitStatus.branch}`)
+    }
+    if (gitStatus.shortCommit) {
+      gitParts.push(`Commit: ${gitStatus.shortCommit}`)
+    }
+    if (gitStatus.ahead > 0 || gitStatus.behind > 0) {
+      gitParts.push(`Ahead: ${gitStatus.ahead}, Behind: ${gitStatus.behind}`)
+    }
+    if (!gitStatus.isClean) {
+      const statusParts: string[] = []
+      if (gitStatus.hasStagedChanges) statusParts.push('staged changes')
+      if (gitStatus.hasUnstagedChanges) statusParts.push('unstaged changes')
+      if (gitStatus.hasUntrackedFiles) statusParts.push('untracked files')
+      gitParts.push(`Status: ${statusParts.join(', ')}`)
+    }
+    if (gitStatus.hasUnpushedCommits) {
+      gitParts.push('Has unpushed commits')
+    }
+    if (gitParts.length > 0) {
+      parts.push(`Git: ${gitParts.join('; ')}`)
+    }
   }
 
   // CLAUDE.md / AGENTS.md files
@@ -61,4 +82,80 @@ export async function getSystemContext(
 
 export async function getUserContext(): Promise<string> {
   return ''
+}
+
+/**
+ * Get detailed git context for use in prompts
+ */
+export async function getGitContext(): Promise<string> {
+  const cwd = getCwd()
+  const gitStatus = await getGitStatus(cwd)
+
+  if (!gitStatus.isGit) {
+    return 'Not in a git repository'
+  }
+
+  const parts: string[] = []
+  parts.push(`Git Repository: ${gitStatus.root}`)
+
+  if (gitStatus.branch) {
+    parts.push(`Branch: ${gitStatus.branch}`)
+  }
+  if (gitStatus.defaultBranch && gitStatus.defaultBranch !== gitStatus.branch) {
+    parts.push(`Default Branch: ${gitStatus.defaultBranch}`)
+  }
+  if (gitStatus.commit) {
+    parts.push(`Commit: ${gitStatus.commit}`)
+  }
+  if (gitStatus.remoteUrl) {
+    parts.push(`Remote: ${gitStatus.normalizedRemoteUrl}`)
+  }
+  parts.push(`Working Tree: ${gitStatus.isClean ? 'Clean' : 'Dirty'}`)
+
+  if (gitStatus.hasStagedChanges) {
+    parts.push('- Has staged changes')
+  }
+  if (gitStatus.hasUnstagedChanges) {
+    parts.push('- Has unstaged changes')
+  }
+  if (gitStatus.hasUntrackedFiles) {
+    parts.push('- Has untracked files')
+  }
+  if (gitStatus.ahead > 0) {
+    parts.push(`- ${gitStatus.ahead} commits ahead of origin`)
+  }
+  if (gitStatus.behind > 0) {
+    parts.push(`- ${gitStatus.behind} commits behind origin`)
+  }
+  if (gitStatus.hasUnpushedCommits) {
+    parts.push('- Has unpushed commits')
+  }
+
+  return parts.join('\n')
+}
+
+/**
+ * Get git status object for programmatic use
+ */
+export async function getGitStatusObject(): Promise<{
+  isGit: boolean
+  branch: string | null
+  commit: string | null
+  isClean: boolean
+  hasChanges: boolean
+  ahead: number
+  behind: number
+}> {
+  const cwd = getCwd()
+  const gitStatus = await getGitStatus(cwd)
+
+  return {
+    isGit: gitStatus.isGit,
+    branch: gitStatus.branch,
+    commit: gitStatus.commit,
+    isClean: gitStatus.isClean,
+    hasChanges: !gitStatus.isClean,
+    ahead: gitStatus.ahead,
+    behind: gitStatus.behind,
+  }
 }
