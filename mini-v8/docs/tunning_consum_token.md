@@ -126,3 +126,27 @@
     autoCompact.test.ts 通过，38/38
   - bun run typecheck 仍失败，但只剩仓库原有的 src/__tests__/turnLimit.test.ts 和 src/utils/turnLimit.ts 报错，没有新增
     本次改动相关类型错误
+
+    # P4
+
+    P4已落地。核心改动是把会话拆成了“原始全量历史”和“每轮 API 投影”两层。
+
+  新增的 mini-v8/src/services/messages/apiProjection.ts:29 提供了 ConversationBuffers、一次性 forceCompactNextProjection
+  标志，以及 projectMessagesForAPI()。它会从 fullMessages 现算 messagesForAPI，在投影层做 microcompact/full compact，但
+  不再改写原始历史。
+
+  CLI 现在改成围绕 conversation.fullMessages 运作，在 mini-v8/src/entrypoints/cli.ts:195 初始化，在 mini-v8/src/
+  entrypoints/cli.ts:248 把 /compact 改成“强制下一轮 API 投影 compact 一次”，并在 mini-v8/src/entrypoints/cli.ts:395 每
+  轮先生成 messagesForAPI，再用于 getSystemContext() 和 streamClaudeAPI()。这样 REPL 展示、调试、手动 /memory extract、
+  未来 resume 都保留 full history，而 API 侧仍能稳态裁剪。agent runner 也同步切到了同一模型，见 mini-v8/src/agents/
+  agentRunner.ts:139 和 mini-v8/src/agents/agentRunner.ts:157。
+
+  测试补在 mini-v8/src/services/messages__tests__/apiProjection.test.ts:13，覆盖了一次性强制 compact 标志、full history
+  不被 compact 破坏、以及 microcompact 只作用于 API 投影。验证结果：
+
+  - bun test src/services/messages/__tests__/apiProjection.test.ts src/__tests__/context.test.ts src/services/memory/
+    __tests__/sessionMemory.test.ts src/__tests__/autoCompact.test.ts 通过，42/42
+  - bun run typecheck 通过
+
+  下一步做 P5 时，就可以直接在 projectMessagesForAPI() 上继续叠加更细的 stub/summary/token budget 策略，不会再伤到 full
+  history。

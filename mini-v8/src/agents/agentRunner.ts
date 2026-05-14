@@ -17,14 +17,12 @@ import { getAPIKey } from '../utils/auth.js'
 import { resolveModel } from '../utils/model/model.js'
 import { logError, logDebug } from '../utils/log.js'
 import {
-  needsCompaction,
-  compactMessages,
-  microcompactToolResults,
-} from '../services/compact/autoCompact.js'
+  createConversationBuffers,
+  projectMessagesForAPI,
+} from '../services/messages/apiProjection.js'
 import { withRetry, isRetryableError } from '../services/retry.js'
 import { getCwd } from '../bootstrap/state.js'
 import { getSystemContext, getUserContext } from '../context.js'
-import { getSessionMemorySummaryForCompact } from '../services/memory/sessionMemory.js'
 import type {
   AgentDefinition,
   AgentInstance,
@@ -76,36 +74,6 @@ export interface AgentRunOptions {
     toolName: string,
     input: Record<string, unknown>,
   ) => Promise<boolean>
-}
-
-function replaceMessages(
-  target: BetaMessageParam[],
-  next: BetaMessageParam[],
-): boolean {
-  if (target === next) {
-    return false
-  }
-
-  target.splice(0, target.length, ...next)
-  return true
-}
-
-function applyConversationCompaction(
-  messages: BetaMessageParam[],
-  model: string,
-): void {
-  const microcompacted = microcompactToolResults(messages)
-  replaceMessages(messages, microcompacted)
-
-  if (needsCompaction(messages, model)) {
-    const sessionMemorySummary = getSessionMemorySummaryForCompact(messages)
-    replaceMessages(
-      messages,
-      compactMessages(messages, {
-        sessionMemorySummary,
-      }),
-    )
-  }
 }
 
 /**
@@ -168,9 +136,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
   // Build agent system prompt
   const agentSystemPrompt = agentDef.getSystemPrompt()
 
-  // Build messages
-  const messages: BetaMessageParam[] = [...parentMessages]
-  messages.push({
+  const conversation = createConversationBuffers(parentMessages)
+  const fullMessages = conversation.fullMessages
+  fullMessages.push({
     role: 'user',
     content: task,
   })
@@ -186,8 +154,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
     while (turnCount < maxTurns) {
       turnCount++
 
-      // Auto-compact if needed
-      applyConversationCompaction(messages, model)
+      const { messagesForAPI } = projectMessagesForAPI(fullMessages, {
+        model,
+      })
 
       const toolUses: Array<{
         id: string
@@ -212,12 +181,12 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
         await withRetry(
           async () => {
             const stream = streamClaudeAPI({
-              messages,
+              messages: messagesForAPI,
               systemPrompt:
                 agentSystemPrompt +
                 '\n\n' +
                 (await getSystemContext(undefined, {
-                  conversationMessages: messages,
+                  conversationMessages: messagesForAPI,
                   sessionMemoryMode: 'auto',
                 })),
               tools: filteredTools,
@@ -310,7 +279,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
           : { type: 'text' as const, text: b.text },
       )
       if (assistantContent.length > 0) {
-        messages.push({
+        fullMessages.push({
           role: 'assistant',
           content: assistantContent,
         })
@@ -391,7 +360,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
       }
 
       // Add tool results
-      messages.push({
+      fullMessages.push({
         role: 'user',
         content: toolResults,
       })

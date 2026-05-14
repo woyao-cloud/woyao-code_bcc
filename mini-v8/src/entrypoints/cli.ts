@@ -9,10 +9,7 @@ import { getPermissionMode } from '../utils/settings/settings.js'
 import { logError } from '../utils/log.js'
 import { createDefaultTurnLimitManager } from '../utils/turnLimit.js'
 import type { ContentItem } from '../types/message.js'
-import type {
-  BetaRawMessageStreamEvent,
-  BetaMessageParam,
-} from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { Tool, ToolUseContext } from '../Tool.js'
 import { createAbortController } from '../utils/abortController.js'
 import { isOpenAIProvider } from '../utils/model/providers.js'
@@ -24,10 +21,13 @@ import {
 } from '../services/mcp/mcpClient.js'
 import { loadConfig } from '../services/config/configManager.js'
 import {
-  needsCompaction,
-  compactMessages,
-  microcompactToolResults,
-} from '../services/compact/autoCompact.js'
+  clearConversationBuffers,
+  consumeForcedCompaction,
+  createConversationBuffers,
+  projectMessagesForAPI,
+  requestForcedCompaction,
+  type ConversationBuffers,
+} from '../services/messages/apiProjection.js'
 import { withRetry, isRetryableError } from '../services/retry.js'
 import { createInterface } from 'readline'
 import { stdin, stdout } from 'process'
@@ -58,7 +58,6 @@ import {
   extractSessionNotes,
   persistSessionMemory,
   getSessionId,
-  getSessionMemorySummaryForCompact,
 } from '../services/memory/sessionMemory.js'
 import { getTeamMemoryForPrompt } from '../services/memory/teamMemorySync.js'
 import {
@@ -93,41 +92,6 @@ let loadedPlugins: LoadedPlugin[] = []
 
 function getLoadedPlugins(): LoadedPlugin[] {
   return loadedPlugins
-}
-
-function replaceMessages(
-  target: BetaMessageParam[],
-  next: BetaMessageParam[],
-): boolean {
-  if (target === next) {
-    return false
-  }
-
-  target.splice(0, target.length, ...next)
-  return true
-}
-
-function applyConversationCompaction(
-  messages: BetaMessageParam[],
-  model?: string,
-  forceCompact: boolean = false,
-): {
-  didMicrocompact: boolean
-  didCompact: boolean
-} {
-  let nextMessages = microcompactToolResults(messages)
-  const didMicrocompact = replaceMessages(messages, nextMessages)
-
-  if (forceCompact || needsCompaction(messages, model)) {
-    const sessionMemorySummary = getSessionMemorySummaryForCompact(messages)
-    nextMessages = compactMessages(messages, {
-      sessionMemorySummary,
-    })
-    const didCompact = replaceMessages(messages, nextMessages)
-    return { didMicrocompact, didCompact }
-  }
-
-  return { didMicrocompact, didCompact: false }
 }
 
 async function main() {
@@ -226,7 +190,7 @@ async function runREPL(_config: unknown) {
   )
   process.stderr.write('Type /help, Ctrl+C cancel, Ctrl+D exit\n\n')
 
-  const messages: BetaMessageParam[] = []
+  const conversation = createConversationBuffers()
 
   while (true) {
     const line = await question('> ')
@@ -264,7 +228,7 @@ async function runREPL(_config: unknown) {
     }
 
     if (line === '/clear') {
-      messages.length = 0
+      clearConversationBuffers(conversation)
       process.stderr.write('Conversation cleared.\n')
       continue
     }
@@ -279,18 +243,25 @@ async function runREPL(_config: unknown) {
 
     if (line === '/compact') {
       const activeModel = resolveModel()
-      const { didMicrocompact, didCompact } = applyConversationCompaction(
-        messages,
-        activeModel,
-        true,
+      const { didMicrocompact, didCompact } = projectMessagesForAPI(
+        conversation.fullMessages,
+        {
+          model: activeModel,
+          forceCompact: true,
+        },
       )
       if (didCompact) {
-        process.stderr.write('Conversation compacted.\n')
+        requestForcedCompaction(conversation)
+        process.stderr.write('Next API turn will use a compacted projection.\n')
       } else if (didMicrocompact) {
-        process.stderr.write('Older tool results compacted.\n')
+        process.stderr.write(
+          'Next API turn will use microcompacted tool results.\n',
+        )
       } else {
         process.stderr.write(
-          'No compaction needed (' + messages.length + ' messages).\n',
+          'No compaction needed (' +
+            conversation.fullMessages.length +
+            ' full messages).\n',
         )
       }
       continue
@@ -330,7 +301,10 @@ async function runREPL(_config: unknown) {
     // Memory commands
     if (line.startsWith('/memory ') || line === '/memory') {
       const subArgs = line.slice('/memory'.length).trim()
-      const result = await handleMemoryCommand(subArgs, messages)
+      const result = await handleMemoryCommand(
+        subArgs,
+        conversation.fullMessages,
+      )
       process.stderr.write(result + '\n')
       continue
     }
@@ -380,23 +354,26 @@ async function runREPL(_config: unknown) {
       continue
     }
 
-    messages.push({ role: 'user', content: line })
-    await runConversationTurn(messages, tools)
+    conversation.fullMessages.push({ role: 'user', content: line })
+    await runConversationTurn(conversation, tools)
   }
 }
 
 async function runConversation(prompt: string, _config: unknown) {
   const tools = getTools()
-  const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
-  await runConversationTurn(messages, tools)
+  const conversation = createConversationBuffers([
+    { role: 'user', content: prompt },
+  ])
+  await runConversationTurn(conversation, tools)
 }
 
 async function runConversationTurn(
-  messages: BetaMessageParam[],
+  conversation: ConversationBuffers,
   tools: Tool[],
 ) {
   const cwd = getCwd()
   const toolsMap = new Map(tools.map(t => [t.name, t]))
+  const fullMessages = conversation.fullMessages
 
   let totalInputTokens = 0
   let totalOutputTokens = 0
@@ -413,10 +390,14 @@ async function runConversationTurn(
     }
 
     const activeModel = resolveModel()
-    applyConversationCompaction(messages, activeModel)
+    const forceCompact = consumeForcedCompaction(conversation)
+    const { messagesForAPI } = projectMessagesForAPI(fullMessages, {
+      model: activeModel,
+      forceCompact,
+    })
 
     const systemContext = await getSystemContext(undefined, {
-      conversationMessages: messages,
+      conversationMessages: messagesForAPI,
       sessionMemoryMode: 'auto',
     })
     const systemPrompt =
@@ -448,7 +429,7 @@ async function runConversationTurn(
       await withRetry(
         async () => {
           const stream = streamClaudeAPI({
-            messages,
+            messages: messagesForAPI,
             systemPrompt,
             tools,
             model: resolveModel(),
@@ -546,7 +527,7 @@ async function runConversationTurn(
         : { type: 'text', text: b.text },
     )
     if (assistantContent.length > 0) {
-      messages.push({
+      fullMessages.push({
         role: 'assistant',
         content: assistantContent,
       })
@@ -627,14 +608,14 @@ async function runConversationTurn(
       })
     }
 
-    messages.push({
+    fullMessages.push({
       role: 'user',
       content: toolResults,
     })
 
     // Auto-extract session memory if threshold met
-    if (shouldExtractMemory(messages)) {
-      const notes = extractSessionNotes(messages)
+    if (shouldExtractMemory(fullMessages)) {
+      const notes = extractSessionNotes(fullMessages)
       persistSessionMemory(notes)
       if (notes.length > 0) {
         process.stderr.write('  Memory: ' + notes.length + ' notes extracted\n')
