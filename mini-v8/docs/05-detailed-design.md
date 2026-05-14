@@ -1,317 +1,230 @@
-# Claude Code Mini v8 - ??????
+﻿# Claude Code Mini v8 - 详细设计文档
 
-> ??: 8.0.0 | ??: 2026-05-14
+> 版本: 8.0.0 | 日期: 2026-05-14
 
 ---
 
-## 1. ???? (entrypoints/cli.ts)
+## 1. 入口设计
 
-### ??: src/entrypoints/cli.ts (646?)
+### 文件: src/entrypoints/cli.ts (646行)
 
-**??**: CLI ?? + REPL ?? + ?????
+**职责**: CLI 入口 + REPL 循环 + 多模式分发
 
-**???**: `main()`
-
-**????**:
+**主函数**: `main()`
 
 ```
 main():
-  1. ?? MACRO ?? (VERSION, BUILD_TIME)
-  2. resetTasks() ??????
-  3. ?? API Key
-  4. loadConfig() ????
-  5. loadAllPlugins() ????
-  6. initAgentRegistry() ??? Agent ????
-  7. initSession() ???????
-  8. connectMCPServers() + registerMCPTools() ?? MCP
-  9. ????:
+  1. 设置 MACRO 全局 (VERSION, BUILD_TIME)
+  2. resetTasks() 清空任务列表
+  3. 验证 API Key
+  4. loadConfig() 加载配置
+  5. loadAllPlugins() 加载插件
+  6. initAgentRegistry() 初始化 Agent 注册
+  7. initSession() 初始化会话记忆
+  8. connectMCPServers() + registerMCPTools()
+  9. 模式分支:
      - Pipe/Args: runHeadless(prompt)
      - TTY: runREPL()
 ```
 
 **runHeadless(prompt)**:
-- ?? 1 ? user message
-- ?? processConversation ??
-- ???????
+- 构建 1 条 user message
+- 调用 processConversation 循环
+- 输出结果后退出
 
 **runREPL()**:
-- ?????? (Agents/Memory/MCP ??)
-- readline ??????
-- ?? / ???? -> ??? Commands
-- ???? -> processConversation ??
-- Ctrl+C/D ??
+- 显示启动信息
+- readline 读取用户输入
+- 检查 / 命令前缀 -> 路由到 Commands
+- 普通消息 -> processConversation
 
 **processConversation(messages)**:
 ```
 while true:
   1. needsCompaction? -> compactMessages()
-  2. streamClaudeAPI() -> ????
-     - text_delta -> ??? fullText
-     - content_block_start(tool_use) -> ?? tool use
-     - input_json_delta -> ?? JSON
-  3. ?? fullText
-  4. ?? tool_uses:
+  2. streamClaudeAPI() -> 流式接收
+     - text_delta -> 累积到 fullText
+     - content_block_start(tool_use) -> 记录
+     - input_json_delta -> 累积 JSON
+  3. 输出 fullText
+  4. 如有 tool_uses:
      for each toolUse:
-       - ???? (requestPermission)
-       - ?? ToolUseContext
+       - 权限检查
+       - 构建 ToolUseContext
        - tool.execute()
-       - ?? tool_result
-     - ??? messages
-  5. ? tool_uses -> break
-  6. shouldExtractMemory? -> ????
+       - 收集 tool_result
+     - 追加到 messages
+  5. 无 tool_uses -> break
+  6. shouldExtractMemory? -> 提取
 ```
 
 ---
 
-## 2. Agent ??????
+## 2. Agent 系统详细设计
 
-### 2.1 agentTypes.ts (228?)
+### 2.1 agentTypes.ts (228行)
 
-**????**:
-
-| ?? | ?? | ?? |
+| 类型 | 关键字段 | 用途 |
 |------|------|------|
-| AgentSource | "built-in"\|"user"\|"project"\|"plugin"\|"local" | Agent ?? |
-| AgentDefinition | agentType, whenToUse, tools, disallowedTools, skills, getSystemPrompt, model, maxTurns, source, color, background, initialPrompt | Agent ?? |
-| AgentInstance | id, definition, status, task, result[], error, turnCount, totalInputTokens, totalOutputTokens | ???? |
-| AgentStatus | "idle"\|"running"\|"completed"\|"failed"\|"cancelled" | ??? |
-| TeamDefinition | name, description, leadAgentId, leadSessionId, members[] | ???? |
-| TeamMember | agentId, name, agentType, role, model, joinedAt, cwd, isActive | ???? |
-| AgentRole | "lead"\|"worker"\|"coordinator" | ???? |
-| AgentRunContext | agentId, parentSessionId, agentType, teamName, isTeamLead, startTime | ????? |
-| AgentResult | agentId, status, content[], totalTokens, totalToolUseCount, totalDurationMs, error | ???? |
+| AgentSource | built-in/user/project/plugin/local | Agent来源枚举 |
+| AgentDefinition | agentType, whenToUse, tools, disallowedTools, getSystemPrompt, maxTurns, source | Agent蓝图 |
+| AgentInstance | id, definition, status, task, result[], turnCount, tokens | 运行实例 |
+| AgentStatus | idle/running/completed/failed/cancelled | 状态机 |
+| TeamDefinition | name, leadAgentId, members[] | 团队定义 |
+| TeamMember | agentId, name, agentType, role, isActive | 团队成员 |
+| AgentRunContext | agentId, agentType, teamName, isTeamLead, startTime | 执行上下文 |
+| AgentResult | agentId, status, content[], totalTokens, totalToolUseCount, durationMs | 执行结果 |
 
-### 2.2 agentRegistry.ts (245?)
+### 2.2 agentRegistry.ts (245行)
 
-**????**: `Map<string, AgentDefinition>`
+**数据结构**: `Map<string, AgentDefinition>`
 
-**????**:
+| 函数 | 说明 |
+|------|------|
+| initAgentRegistry(cwd, plugins[]) | 初始化: 内置+用户+项目+插件来源 |
+| registerAgent(agent) | 注册，优先级: plugin > project > user > built-in |
+| getAgent(agentType) | 按类型查询 AgentDefinition |
+| getAllAgents() | 获取全部已注册 Agent |
+| searchAgents(query) | 按名称/描述搜索 |
+| getAgentsForPrompt() | 格式化为系统提示词 |
 
-| ?? | ?? | ?? |
-|------|------|------|
-| initAgentRegistry | (cwd, plugins[]) -> void | ???: ??+??+??+?? |
-| registerAgent | (agent) -> void | ??????: plugin > project > user > built-in |
-| unregisterAgent | (agentType) -> boolean | ?? |
-| getAgent | (agentType) -> AgentDefinition? | ?? |
-| getAllAgents | () -> AgentDefinition[] | ?? |
-| searchAgents | (query) -> AgentDefinition[] | ?? |
-| getAgentsForPrompt | () -> string | ????????? |
-| resetAgentRegistry | () -> void | ?? (???) |
+**Agent Markdown 解析**:
+- Frontmatter: YAML-like key: value
+- 字段: agentType, whenToUse, description, tools, disallowedTools, skills, model, maxTurns, permissionMode, color, background, initialPrompt
+- Body 部分作为 System Prompt 内容
 
-**Agent Markdown ??** (parseAgentMarkdownFile):
-- Frontmatter ??: YAML-like (key: value)
-- ????: agentType, whenToUse, description, tools, disallowedTools, skills, model, maxTurns, permissionMode, color, background, initialPrompt
-- Body ???? System Prompt
+### 2.3 agentRunner.ts (449行)
 
-### 2.3 agentRunner.ts (449?)
+**核心函数**: `runAgent(options) -> AgentResult`
 
-**????**: `runAgent(options) -> AgentResult`
-
-**????**:
 ```
-1. ?? AgentDefinition (?? string ? object)
-2. ?? API Key
-3. ?? Agent Instance (UUID, maxTurns, model)
-4. ?? AgentRunContext ? activeAgents Map
-5. filterToolsForAgent() ????
-6. ?? Agent System Prompt
-7. ?????? (parentMessages + task)
-8. Agent ?? (turnCount < maxTurns):
+1. 解析 AgentDefinition (string或object)
+2. 验证 API Key
+3. 创建 Agent Instance (UUID, maxTurns, model)
+4. 注册 AgentRunContext 到 activeAgents Map
+5. filterToolsForAgent() 过滤工具集合
+6. 构建 Agent System Prompt
+7. 创建消息列表 (parent + task)
+8. Agent 循环 (turnCount < maxTurns):
    a. needsCompaction() -> compactMessages()
-   b. streamClaudeAPI() ????
-   c. ?? text ? contentOutput
-   d. ?? tool_uses:
-      - ????
-      - ?? ToolUseContext
-      - tool.execute()
-      - ?? tool_result ? messages
-   e. ? tool_uses -> break
-9. ?? activeAgents
-10. ?? AgentResult
+   b. streamClaudeAPI() 获取响应
+   c. 累积 text 到 contentOutput
+   d. 如 tool_uses: 权限检查+工具执行+追加结果
+   e. 无 tool_uses -> break
+9. 清理 activeAgents
+10. 返回 AgentResult
 ```
 
-**????** (filterToolsForAgent):
-```
-- agent.tools = ["*"] && no disallowedTools -> all
-- agent.tools = ["*"] && has disallowedTools -> exclude disallowed
-- agent.tools non-empty -> exact match
-- only disallowedTools -> exclude them
-- default: all tools
-```
+**过滤算法** (filterToolsForAgent):
+- tools = ["*"] -> 全部工具
+- tools = ["*"] + disallowedTools -> 排除
+- tools 非空列表 -> 精确匹配
+- disallowedTools only -> 排除
+- Default: 全部工具
 
-**?????**:
-```
-activeAgents: Map<string, AgentRunContext>
-getCurrentAgentContext(): ???????
-getAgentContext(agentId): ? ID ??
-```
+**模块级上下文追踪**:
+- activeAgents: Map<string, AgentRunContext>
+- getCurrentAgentContext(): 返回最后注册的上下文
+- getAgentContext(agentId): 按ID查询
 
-### 2.4 builtInAgents.ts (228?)
+### 2.4 builtInAgents.ts (228行)
 
-**6 ??? Agent**:
+6个内置Agent的系统提示词特点:
 
-| Agent | System Prompt ?? | ???? |
-|-------|-------------------|---------|
-| general-purpose | ?????+?? | tools: ["*"] |
-| Explore | ???????????/???? | disallowedTools: [Write,Edit,NotebookEdit] |
-| Plan | ?????????????? | disallowedTools: [Write,Edit,NotebookEdit] |
-| Verify | ?????5???? | disallowedTools: [Write,Edit,NotebookEdit] |
-| coordinator | ???????????worker | tools: ["*"] |
-| worker | ???????????? | tools: ["*"] |
+| Agent | 工具配置 | 特点 |
+|-------|---------|------|
+| general-purpose | tools: ["*"] | 多用途研究+实现 |
+| Explore | disallowedTools: [Write,Edit] | 只读搜索专家 |
+| Plan | disallowedTools: [Write,Edit] | 只读规划专家 |
+| Verify | disallowedTools: [Write,Edit] | 代码审查5维度 |
+| coordinator | tools: ["*"] | 协调整合任务+委派worker |
+| worker | tools: ["*"] | 独立执行子任务 |
 
-### 2.5 teamManager.ts (227?)
+### 2.5 teamManager.ts (227行)
 
-**??????**:
-
-| ?? | ?? | ??? |
+| 操作 | 函数 | 持久化 |
 |------|------|:------:|
-| ?? | createTeam(name, desc?, leadType?) | writeTeamFile |
-| ?? | deleteTeam(name) -> {success,message} | deleteTeamFile |
-| ???? | addTeamMember(team, name, type, role) | writeTeamFile |
-| ???? | removeTeamMember(team, memberId) | writeTeamFile |
-| ???? | updateMemberStatus(team, memberId, active) | writeTeamFile |
-| ?? | getTeam(name), getAllTeams(), getTeamMembers(name) | readTeamFile |
+| 创建 | createTeam(name, desc?, leadType?) | ✅ JSON |
+| 删除 | deleteTeam(name) | ✅ 删除文件 |
+| 添加成员 | addTeamMember(team, name, type, role) | ✅ |
+| 移除成员 | removeTeamMember(team, memberId) | ✅ |
+| 状态更新 | updateMemberStatus(team, memberId, active) | ✅ |
+| 查询 | getTeam, getAllTeams, getTeamMembers | 读JSON |
 
-**?????**: `~/.claude-code-mini/teams/{name}.json`
+**持久化路径**: `~/.claude-code-mini/teams/{name}.json`
 
 ---
 
-## 3. API ?????
+## 3. API 层详细设计
 
-### 3.1 services/api/claude.ts (130?)
+### 3.1 services/api/claude.ts (130行)
 
-**Provider ????**:
+**Provider 路由**:
 ```
 streamClaudeAPI(params):
   if isOpenAIProvider():
-    -> config = getOpenAIConfig()
-    -> model = resolveOpenAIModel(params.model)
-    -> stream = streamOpenAIAPI(...)
-    -> yield* openAIToAnthropicStream(stream)
-  else:
+    -> openAIStream = streamOpenAIAPI(...)
+    -> yield* openAIToAnthropicStream(openAIStream)
+  else (Anthropic):
     -> client = new Anthropic({apiKey, baseURL})
-    -> stream = client.beta.messages.create({stream:true})
-    -> yield* stream events
+    -> stream = await client.beta.messages.create({stream: true})
+    -> for await event of stream: yield event
 ```
 
-**????**:
-- max_tokens: 32000 (??)
-- betas: computer-use-2025-01-27, long-output, token-efficient-tools-2025-05-06 ?
-- system: ?? system prompt (?????)
-- tools: ??? API ?? (name, description, input_schema)
+**关键参数**:
+- max_tokens: 32000 (默认)
+- betas: 通过constants/betas.ts管理
+- system: 独立参数 (非消息数组)
 
-### 3.2 services/api/openai/
+### 3.2 OpenAI 兼容层 (services/api/openai/)
 
-**client.ts**: OpenAI Chat Completions ??
-- ????: OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
-- ????: fetch + SSE ??
-- ????: Anthropic Tool -> OpenAI function
-
-**streamAdapter.ts**: OpenAI -> Anthropic ??????
-- text delta -> content_block_delta
-- tool_calls -> content_block_start (tool_use)
-- function.arguments -> input_json_delta
-
-**modelMap.ts**: ??????
-- claude-sonnet-4-20250514 -> gpt-4o (??)
+- **client.ts**: OpenAI Chat Completions SSE流式调用
+- **streamAdapter.ts**: OpenAI事件 -> Anthropic流格式映射
+- **modelMap.ts**: Claude模型名 -> OpenAI模型名映射
 
 ---
 
-## 4. ????????
+## 4. 工具系统详细设计
 
-### 4.1 ????? (tools/tools.ts)
+### 4.1 注册表 (tools/tools.ts, 72行)
 
 ```typescript
-// ??????
-function getTools(): Tool[] {
-  return [
-    BashTool, FileReadTool, FileWriteTool, FileEditTool,
-    GrepTool, GlobTool, WebFetchTool, WebSearchTool,
-    TaskCreateTool, TaskUpdateTool, TaskListTool,
-    ApplyPatchTool, SkillTool,
-    EnterPlanModeTool, ExitPlanModeTool,
-    AgentTool, TeamCreateTool, TeamDeleteTool,
-    ...mcpTools  // ????? MCP ??
-  ]
-}
-
-function getToolsMap(): Tools {
-  // Map<string, Tool> ?? O(1) ??
-}
-
-function registerMCPTools(entries: MCPEntry[]): void {
-  // ?? MCP ??? Tool ??
-}
+getTools(): Tool[]  // 18内置 + 动态MCP工具
+getToolsMap(): Map<string, Tool>  // O(1)查找
+registerMCPTools(entries: MCPEntry[]): void  // MCP工具包装注册
 ```
 
-### 4.2 ??????
+### 4.2 核心工具实现要点
 
-**BashTool** (54?):
-- ???? shell (win32: cmd.exe, else: /bin/bash)
-- execFileNoThrow ??
-- 120s ??
-- ??: exit code + stdout + stderr
-
-**FileReadTool** (60?):
-- ?? offset/limit ??
-- ??????? error
-- ?????
-
-**FileWriteTool** (52?):
-- ???? (??)
-- ????
-- ??????
-
-**FileEditTool** (90?):
-- ????
-- ?? old_string (????)
-- ??? new_string
-- ??????
-
-**GlobTool** (110?):
-- ?? Bun.Glob ????
-- ???? 100 ?
-
-**GrepTool** (100?):
-- ????
-- ?? -i (?????), -n (??)
-- ???? 100 ?
-
-**WebFetchTool** (180?):
-- fetch URL
-- ?? text/html ??
-- ??? 10000 ??
-
-**WebSearchTool** (140?):
-- ?? API ??
-- ????+URL+??
-
-**AgentTool** (130?):
-- ?? agent type ??
-- ?? runAgent()
-- ???? + usage ??
-
-**TaskCreateTool** (55?):
-- createTask(title, description)
-- ?? task id
-
-**TaskListTool** (40?):
-- listTasks()
-- ?????
-
-**TaskUpdateTool** (75?):
-- updateTask(id, {status, result})
-- ????? task
+| 工具 | 行数 | 关键实现 |
+|------|:---:|------|
+| BashTool | 54 | execFileNoThrow, 120s超时, win32/unix shell自动选择 |
+| FileReadTool | 60 | offset/limit分页, 文件不存在error |
+| FileWriteTool | 52 | 递归创建目录, 覆盖写入 |
+| FileEditTool | 90 | old_string唯一匹配替换 |
+| ApplyPatchTool | 180 | unified diff解析, patch验证 |
+| GlobTool | 110 | Bun.Glob匹配, 最多100条 |
+| GrepTool | 100 | 正则搜索, -i/-n选项 |
+| WebFetchTool | 180 | fetch + HTML提取, 截断10K |
+| WebSearchTool | 140 | 搜索API, 标题+URL+摘要 |
+| AgentTool | 130 | Registry查找+runAgent调用+usage报告 |
+| TaskCreateTool | 55 | taskStore.createTask |
+| TaskListTool | 40 | taskStore.listTasks+格式化 |
+| TaskUpdateTool | 75 | taskStore.updateTask |
+| SkillTool | 70 | 按名称查找并调用Skill |
+| EnterPlanModeTool | 28 | planMode.enterPlanMode() |
+| ExitPlanModeTool | 28 | planMode.leavePlanMode()+addPlanResult |
+| TeamCreateTool | 90 | teamManager.createTeam() |
+| TeamDeleteTool | 80 | teamManager.deleteTeam() |
+| MCPTool | 45 | createMCPToolWrapper 工厂 |
 
 ---
 
-## 5. ????????
+## 5. 记忆系统详细设计
 
-### 5.1 ???? (memoryStore.ts, 225?)
+### 5.1 本地记忆 (memoryStore.ts, 225行)
 
-**??**: `~/.claude-code-mini/memories-v2.json`
-
-**??**:
+**数据结构**:
 ```json
 {
   "version": 1,
@@ -326,144 +239,81 @@ function registerMCPTools(entries: MCPEntry[]): void {
 }
 ```
 
-**CRUD ??**:
-- addMemory(content, tags[], category)
-- getMemories({category?, tags?, limit?})
-- getMemoryById(id)
-- updateMemory(id, updates)
-- deleteMemory(id)
-- searchMemories(query) ? ????
+**CRUD**: addMemory, getMemories({category,tags,limit}), getMemoryById, updateMemory, deleteMemory
+**工具**: searchMemories(query), getAllTags(), getAllCategories(), exportMemories(format), importMemories(data)
+**注入**: formatMemoriesForPrompt() -> 系统提示词
 
-**????**:
-- getAllTags(), getAllCategories()
-- exportMemories(format) ? JSON/Markdown
-- importMemories(data)
-- formatMemoriesForPrompt() ? ?????
+### 5.2 会话记忆 (sessionMemory.ts, 357行)
 
-### 5.2 ???? (sessionMemory.ts, 357?)
+**配置**: enabled/false, minTokensForInit/2000, minTokensBetweenUpdate/1000, maxNotes/30
 
-**??**: `~/.claude-code-mini/session-memory/{id}.md`
+**提取**:
+1. estimateTotalTokens(messages) — 字符数/4
+2. shouldExtractMemory(messages)
+3. extractSessionNotes(messages): 用户请求 + AI决策(regex) + 文件路径(regex)
+4. persistSessionMemory(notes): merge去重 -> groupBy分类 -> write .md
 
-**??**:
-```typescript
-{
-  enabled: false,
-  minTokensForInit: 2000,
-  minTokensBetweenUpdate: 1000,
-  maxNotes: 30
-}
-```
+### 5.3 云端 Memory Stores (memoryStoresClient.ts, 155行)
 
-**????**:
-1. estimateTotalTokens(messages) ? chars/4
-2. shouldExtractMemory(messages) ? ????
-3. extractSessionNotes(messages):
-   - extractUserMessages: filter role="user"
-   - extractAssistantDecisions: regex patterns
-   - extractFilePaths: regex patterns
-4. persistSessionMemory(notes):
-   - mergeNotes (??)
-   - groupBy category
-   - write markdown file
+API: listStores, createStore, getStore, archiveStore, listMemories, createMemory, updateMemory, deleteMemory, listVersions, redactVersion
 
-### 5.3 ?? Memory Stores (memoryStoresClient.ts, 155?)
+### 5.4 团队记忆同步 (teamMemorySync.ts, 260行)
 
-**API ??**: `https://api.anthropic.com/v1/memory_stores`
-
-**??**:
-- listStores() / createStore(name, ns) / getStore(id) / archiveStore(id)
-- listMemories(storeId) / createMemory(storeId, content)
-- getMemory(storeId, memId) / updateMemory(storeId, memId, content) / deleteMemory(...)
-- listVersions(storeId) / redactVersion(storeId, versionId)
-
-### 5.4 ?????? (teamMemorySync.ts, 260?)
-
-**????**: `~/.claude-code-mini/team-memory/*.md`
-
-**????**:
-```
-pullTeamMemory(state):
-  GET /api/.../team_memory?repo=owner/repo
-  for each entry: writeTeamMemory(key, content)
-  update state.serverChecksums
-
-pushTeamMemory(state):
-  local = scanLocalTeamMemories()
-  delta = entries where checksum != serverChecksum
-  PUT with delta entries
-  update state.serverChecksums
-```
+- Delta Upload: 按SHA256校验和比对，仅上传变更
+- 双向同步: pull + push
+- 本地存储: `team-memory/*.md`
 
 ---
 
-## 6. ????????
+## 6. 插件系统详细设计
 
-### 6.1 ????
-
-**????**:
+### 扫描目录
 ```
-Plugin Scope    | ??
----------------|------
-user           | ~/.claude-code-mini/plugins/
-project        | {cwd}/.codex/plugins/
-bundled        | {appRoot}/plugins/bundled/
+user:    ~/.claude-code-mini/plugins/
+project: {cwd}/.codex/plugins/
+bundled: {appRoot}/plugins/bundled/
 ```
 
-**manifest ??**: `.codex-plugin/plugin.json`
+### Manifest: `.codex-plugin/plugin.json`
+### 安装: spec解析 -> marketplace获取 -> 下载tarball -> 解压 -> 验证
 
-### 6.2 ????
-
-**????**:
-1. ?? spec (name@marketplace)
-2. ? marketplace ???? URL
-3. ?? tarball
-4. ????? scope ??
-5. ?? manifest
-
-### 6.3 Marketplace
-
-**?? Marketplace**: `https://api.anthropic.com/v1/marketplace/claude-plugins-official`
-
-**????**:
-- ?? fetch ???? `~/.claude-code-mini/marketplaces/cache/{name}.json`
-- ??????????
+### Marketplace
+- 默认: `https://api.anthropic.com/v1/marketplace/claude-plugins-official`
+- 缓存: `~/.claude-code-mini/marketplaces/cache/{name}.json`
+- 搜索: searchMarketplacePlugins(marketplace, query)
 
 ---
 
-## 7. MCP ???????
+## 7. MCP 客户端详细设计
 
-### 7.1 ????
+### MCPConnection 类
+- spawn 子进程 (stdio: pipe)
+- JSON-RPC 2.0 协议
+- pending Map<id, {resolve,reject}>
+- 缓冲区按行解析JSON
 
-**? MCPConnection**:
-- spawn ??? (stdio: pipe)
-- JSON-RPC 2.0 ??
-- ??/??: pending Map<id, {resolve, reject}>
-- ?????: ???? JSON
-
-**????**:
+### 协议序列
 ```
 1. initialize({protocolVersion, capabilities, clientInfo})
-2. ?? initialized ??
-3. tools/list -> ??????
-4. tools/call -> ????
+2. notifications/initialized
+3. tools/list -> 获取工具
+4. tools/call -> 执行工具
 ```
 
-### 7.2 MCP ????
-
-**createMCPToolWrapper(entry, mcpTool) -> Tool**:
-- name: `mcp__{serverName}__{toolName}`
-- execute: ?? connection.callTool(name, args)
-- ????: MCPToolResult -> ToolResult
+### MCPToolWrapper
+- name: `mcp__{server}__{tool}`
+- execute: connection.callTool(name, args)
+- 结果转换: MCPToolResult -> ToolResult
 
 ---
 
-## 8. ????????
+## 8. 配置管理详细设计
 
-### configManager.ts (68?)
+### configManager.ts (68行)
 
-**????**:
+**AppConfig**:
 ```typescript
-interface AppConfig {
+{
   model?: string
   maxTurns?: number
   permissionMode?: "default"|"acceptEdits"|"bypassPermissions"
@@ -472,53 +322,33 @@ interface AppConfig {
 }
 ```
 
-**??**:
-- loadConfig(): ? `~/.claude-code-mini/config.json` ??????
-- saveConfig(config): ???? + ????
-- updateConfig(updates): ?????
-- setConfigDir(dir): ???????
+**操作**: loadConfig (缓存), saveConfig, updateConfig (合并), setConfigDir (测试)
+
+**路径**: `~/.claude-code-mini/config.json`
 
 ---
 
-## 9. ?????????
+## 9. 上下文构建详细设计
 
-### context.ts (400?)
+### context.ts (400行)
 
-**?????**:
-
-| ?? | ?? | ?? |
-|------|------|------|
-| ???? | new Date() | includeDate |
-| ???? | getCwd() | includeWorkingDirectory |
-| Git ?? | utils/git.ts | includeGit |
-| ClaudeMd | utils/claudemd.ts | includeClaudeMd |
-| Skills | services/skill/skillLoader.ts | includeSkills |
-| Memories | services/memory/memoryStore.ts | includeMemories |
-| Agents | agents/agentRegistry.ts | includeAgents |
-| Teams | agents/teamManager.ts | includeTeams |
-
-**????**:
-```typescript
-async function getSystemContext(config?): Promise<string>
-async function getUserContext(config?): Promise<string>
-```
+**组件**: 日期, 工作目录, Git状态, ClaudeMd, Skills, Memories, Agents, Teams
+**开关**: ContextConfig 控制各组件是否包含
+**输出**: EnhancedContext { fullContext, parts, gitStatus, timestamp }
 
 ---
 
-## 10. ?????????
+## 10. Utils 层
 
-### utils/ ????
-
-| ?? | ?? | ?? |
+| 模块 | 导出 | 用途 |
 |------|------|------|
-| auth.ts | getAPIKey(), getAnthropicBaseURL() | API ?? |
-| claudemd.ts | loadClaudeMdFiles() | ?????? |
-| git.ts | getGitStatus() | Git ???? |
-| log.ts | logError(), logDebug(), logInfo() | ???? |
-| messages.ts | extractUserMessages(), extractText() | ???? |
-| model/model.ts | resolveModel() | ?????? |
-| model/providers.ts | isOpenAIProvider() | Provider ?? |
-| settings/settings.ts | getPermissionMode(), getSettings() | ???? |
-| execFileNoThrow.ts | execFileNoThrow() | ?????? |
-| abortController.ts | createAbortController() | ???? |
-| tokens.ts | estimateTokens() | Token ?? |
+| auth.ts | getAPIKey, getAnthropicBaseURL | API认证配置 |
+| claudemd.ts | loadClaudeMdFiles | 项目CLAUDE.md加载 |
+| git.ts | getGitStatus | Git仓库状态检测 |
+| log.ts | logError, logDebug, logInfo | 分级日志 |
+| model/model.ts | resolveModel | 模型名称解析 |
+| model/providers.ts | isOpenAIProvider | Provider检测 |
+| settings/settings.ts | getPermissionMode, getSettings | 设置管理 |
+| execFileNoThrow.ts | execFileNoThrow | 安全命令执行 |
+| tokens.ts | estimateTokens | Token数估算 |
+| abortController.ts | createAbortController | 取消控制 |

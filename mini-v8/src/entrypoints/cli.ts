@@ -358,11 +358,23 @@ async function runConversationTurn(
   let totalInputTokens = 0
   let totalOutputTokens = 0
 
+  const config = loadConfig()
+  const maxTurns = config.maxTurns ?? 50
+  const warningThreshold = Math.floor(maxTurns * 0.8)
+
   while (true) {
     turnCount++
 
-    if (turnCount > 25) {
-      process.stderr.write('\nTurn limit reached.\n')
+    if (turnCount >= warningThreshold && turnCount % 5 === 0) {
+      process.stderr.write(
+        `\n  [Warning] Approaching turn limit: ${turnCount}/${maxTurns}\n`,
+      )
+    }
+
+    if (turnCount > maxTurns) {
+      process.stderr.write(
+        `\nTurn limit (${maxTurns}) reached. Consider using /model command to change settings or break the task into smaller steps.\n`,
+      )
       break
     }
 
@@ -618,23 +630,27 @@ function safeJsonMerge(
   toolUseId: string,
 ): Record<string, unknown> {
   const prev = jsonBuf.get(toolUseId) || ''
-  // Try parsing directly first (Anthropic sends accumulated JSON)
+
   try {
-    return JSON.parse(partial) as Record<string, unknown>
+    const parsed = JSON.parse(partial) as Record<string, unknown>
+    // Merge with existing object to preserve previously accumulated fields
+    return { ...existing, ...parsed }
   } catch {
     // Log the unparseable partial for debugging
     const snippet =
       partial.length > 120 ? partial.slice(0, 120) + '...' : partial
-    process.stderr.write(`[dbg] partial_json FAIL parse (len=${partial.length}): ${snippet}
-`)
+    process.stderr.write(
+      `[dbg] partial_json parse (len=${partial.length}): ${snippet}\n`,
+    )
   }
-  // Fallback: accumulate and try to parse the full buffer
+
   const buf = prev + partial
   jsonBuf.set(toolUseId, buf)
+
   try {
     const parsed = JSON.parse(buf) as Record<string, unknown>
     jsonBuf.delete(toolUseId)
-    return parsed
+    return { ...existing, ...parsed }
   } catch {
     return existing
   }
