@@ -7,6 +7,7 @@ import { resolveModel } from '../utils/model/model.js'
 import { getAPIKey } from '../utils/auth.js'
 import { getPermissionMode } from '../utils/settings/settings.js'
 import { logError } from '../utils/log.js'
+import { createDefaultTurnLimitManager } from '../utils/turnLimit.js'
 import type { ContentItem } from '../types/message.js'
 import type {
   BetaRawMessageStreamEvent,
@@ -354,27 +355,17 @@ async function runConversationTurn(
   const cwd = getCwd()
   const toolsMap = new Map(tools.map(t => [t.name, t]))
 
-  let turnCount = 0
   let totalInputTokens = 0
   let totalOutputTokens = 0
 
   const config = loadConfig()
-  const maxTurns = config.maxTurns ?? 50
-  const warningThreshold = Math.floor(maxTurns * 0.8)
+  const turnLimitManager = createDefaultTurnLimitManager(config.maxTurns)
 
   while (true) {
-    turnCount++
+    const turnResult = turnLimitManager.increment()
 
-    if (turnCount >= warningThreshold && turnCount % 5 === 0) {
-      process.stderr.write(
-        `\n  [Warning] Approaching turn limit: ${turnCount}/${maxTurns}\n`,
-      )
-    }
-
-    if (turnCount > maxTurns) {
-      process.stderr.write(
-        `\nTurn limit (${maxTurns}) reached. Consider using /model command to change settings or break the task into smaller steps.\n`,
-      )
+    // Check if we've reached the turn limit
+    if (!turnResult.shouldContinue) {
       break
     }
 
@@ -499,14 +490,15 @@ async function runConversationTurn(
 
     if (fullText) process.stdout.write(fullText + '\n')
     if (toolUses.length === 0) {
-      if (turnCount > 1)
+      const currentTurnCount = turnLimitManager.getTurnCount()
+      if (currentTurnCount > 1)
         process.stderr.write(
           '\n  Tokens: ' +
             totalInputTokens +
             ' in / ' +
             totalOutputTokens +
             ' out | ' +
-            turnCount +
+            currentTurnCount +
             ' turns\n',
         )
       break
