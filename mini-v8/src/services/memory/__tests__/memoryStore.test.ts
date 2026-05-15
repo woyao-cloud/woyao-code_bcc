@@ -11,6 +11,7 @@ import {
   getAllTags,
   getAllCategories,
   exportMemories,
+  formatMemoriesForPromptWithOptions,
   importMemories,
   setMemoryDir,
 } from '../memoryStore.js'
@@ -211,5 +212,52 @@ describe('importMemories', () => {
   test('returns 0 for invalid JSON', () => {
     const count = importMemories('not valid json')
     expect(count).toBe(0)
+  })
+})
+
+describe('formatMemoriesForPromptWithOptions', () => {
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'mem-test-'))
+    setMemoryDir(tempDir)
+  })
+
+  afterEach(() => {
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {}
+  })
+
+  test('prefers memories relevant to the current query', () => {
+    addMemory('Fix auth retry flow in src/auth.ts', ['auth'], 'bug')
+    addMemory('Polish landing page typography and spacing', ['design'], 'note')
+    addMemory(
+      'Investigate payment webhook timeout handling',
+      ['payments'],
+      'bug',
+    )
+
+    const prompt = formatMemoriesForPromptWithOptions({
+      query: 'continue auth retry work',
+      limit: 2,
+      maxChars: 500,
+    })
+
+    expect(prompt).toContain('Fix auth retry flow')
+    expect(prompt).not.toContain('landing page typography')
+  })
+
+  test('truncates prompt output to the requested budget', () => {
+    addMemory(
+      'Remember to preserve the older migration rationale for auth, session, retry, cache, and prompt budgeting work.',
+      ['auth', 'session', 'budget'],
+      'decision',
+    )
+
+    const prompt = formatMemoriesForPromptWithOptions({
+      maxChars: 80,
+    })
+
+    expect(prompt.length).toBeLessThanOrEqual(80)
+    expect(prompt).toContain('truncated to reduce token usage')
   })
 })

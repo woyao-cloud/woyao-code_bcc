@@ -22,7 +22,7 @@ export function getOpenAIConfig(): OpenAIConfig {
   const apiKey = process.env.OPENAI_API_KEY || ''
   const baseUrl = process.env.OPENAI_BASE_URL || 'http://localhost:11434/v1'
   //'https://api.openai.com/v1';
-  const model = process.env.OPENAI_MODEL || 'deepseek-v4-pro:cloud'
+  const model = process.env.OPENAI_MODEL || 'deepseek-v4-flash:cloud'
   return { apiKey, baseUrl, model }
 }
 

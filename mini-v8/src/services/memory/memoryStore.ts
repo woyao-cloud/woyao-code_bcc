@@ -22,6 +22,12 @@ export interface MemoryStore {
   memories: Memory[]
 }
 
+export interface MemoryPromptOptions {
+  query?: string
+  limit?: number
+  maxChars?: number
+}
+
 // ============================================================
 // Paths (mutable for test isolation)
 // ============================================================
@@ -259,8 +265,19 @@ export function importMemories(data: string): number {
 // ============================================================
 
 export function formatMemoriesForPrompt(): string {
+  return formatMemoriesForPromptWithOptions()
+}
+
+export function formatMemoriesForPromptWithOptions(
+  options: MemoryPromptOptions = {},
+): string {
   try {
-    const memories = getMemories({ limit: 20 })
+    const limit = Math.max(1, options.limit ?? 6)
+    const maxChars = Math.max(0, options.maxChars ?? 900)
+    const memories = selectMemoriesForPrompt({
+      query: options.query,
+      limit,
+    })
     if (memories.length === 0) return ''
 
     const lines = ['', '## User Memories', '']
@@ -269,8 +286,88 @@ export function formatMemoriesForPrompt(): string {
       lines.push('- ' + m.content + tagStr)
     }
     lines.push('')
-    return lines.join('\n')
+    return truncatePromptBlock(lines.join('\n'), maxChars)
   } catch {
     return ''
   }
+}
+
+function selectMemoriesForPrompt(options: {
+  query?: string
+  limit: number
+}): Memory[] {
+  const normalizedQuery = options.query?.trim().toLowerCase() ?? ''
+  const allMemories = getMemories()
+
+  if (!normalizedQuery) {
+    return allMemories.slice(-options.limit)
+  }
+
+  const queryTerms = normalizedQuery
+    .split(/[^a-z0-9_./-]+/i)
+    .map(term => term.trim())
+    .filter(Boolean)
+
+  const scored = allMemories
+    .map((memory, index) => ({
+      memory,
+      index,
+      score: scoreMemoryForPrompt(memory, queryTerms),
+    }))
+    .filter(entry => entry.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+      return right.index - left.index
+    })
+    .slice(0, options.limit)
+    .map(entry => entry.memory)
+
+  if (scored.length > 0) {
+    return scored
+  }
+
+  return allMemories.slice(-Math.min(3, options.limit))
+}
+
+function scoreMemoryForPrompt(memory: Memory, queryTerms: string[]): number {
+  const haystack = [
+    memory.content.toLowerCase(),
+    memory.category.toLowerCase(),
+    memory.tags.join(' ').toLowerCase(),
+  ].join(' ')
+
+  let score = 0
+  for (const term of queryTerms) {
+    if (!term) continue
+    if (memory.content.toLowerCase().includes(term)) {
+      score += 4
+    }
+    if (memory.tags.some(tag => tag.includes(term))) {
+      score += 2
+    }
+    if (memory.category.toLowerCase().includes(term)) {
+      score += 1
+    }
+    if (haystack.includes(term)) {
+      score += 1
+    }
+  }
+
+  return score
+}
+
+function truncatePromptBlock(text: string, maxChars: number): string {
+  if (maxChars <= 0 || text.length <= maxChars) {
+    return text
+  }
+
+  const suffix = '\n\n[User memories truncated to reduce token usage.]'
+  const budget = maxChars - suffix.length
+  if (budget <= 0) {
+    return '[User memories truncated to reduce token usage.]'
+  }
+
+  return text.slice(0, budget).trimEnd() + suffix
 }

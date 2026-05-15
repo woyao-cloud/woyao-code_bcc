@@ -41,6 +41,22 @@ export const MODELS: Record<
     maxTokens: 128000,
     displayName: 'DeepSeek V4 Flash (local)',
   },
+  'qwen-max': {
+    maxTokens: 32000,
+    displayName: 'Qwen Max',
+  },
+  'qwen-plus': {
+    maxTokens: 32000,
+    displayName: 'Qwen Plus',
+  },
+  'qwen-turbo': {
+    maxTokens: 32000,
+    displayName: 'Qwen Turbo',
+  },
+  'qwen-coder-plus': {
+    maxTokens: 32000,
+    displayName: 'Qwen Coder Plus',
+  },
 }
 
 export function getMaxTokens(model: string): number {

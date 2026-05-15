@@ -5,15 +5,16 @@ import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages
 import {
   discoverSkills,
   formatSkillsForPrompt,
+  type Skill,
 } from './services/skill/skillLoader.js'
-import { formatMemoriesForPrompt } from './services/memory/memoryStore.js'
+import { formatMemoriesForPromptWithOptions } from './services/memory/memoryStore.js'
 import {
   getSessionId,
   getSessionMemoryForPrompt,
   shouldInjectSessionMemoryIntoPrompt,
   type SessionMemoryPromptMode,
 } from './services/memory/sessionMemory.js'
-import { getAgentsForPrompt } from './agents/agentRegistry.js'
+import { getAgentsForPromptWithOptions } from './agents/agentRegistry.js'
 import { getTeamsForPrompt } from './agents/teamManager.js'
 
 // ============================================================================
@@ -30,10 +31,21 @@ export interface ContextConfig {
   includeAgents?: boolean
   includeTeams?: boolean
   includeEnvironment?: boolean
+  includeTeamMemory?: boolean
   sessionMemoryMode?: SessionMemoryPromptMode
   sessionMemoryPromptMaxChars?: number
   sessionMemoryPromptMaxNotesPerCategory?: number
   conversationMessages?: BetaMessageParam[]
+  maxContextTokens?: number
+  maxMemoriesInPrompt?: number
+  maxMemoryPromptChars?: number
+  maxSkillsInPrompt?: number
+  maxAgentsInPrompt?: number
+  maxTeamsInPrompt?: number
+  includeSkillsOnlyWhenRelevant?: boolean
+  includeAgentsOnlyWhenRelevant?: boolean
+  includeTeamsOnlyWhenRelevant?: boolean
+  includeMemoriesOnlyWhenRelevant?: boolean
   maxClaudeMdFiles?: number
   maxClaudeMdContentLength?: number
 }
@@ -46,6 +58,7 @@ export interface ContextParts {
   skills?: string
   memories?: string
   sessionMemory?: string
+  teamMemory?: string
   agents?: string
   teams?: string
   environment?: string
@@ -67,13 +80,38 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   includeMemories: true,
   includeAgents: true,
   includeTeams: true,
+  includeTeamMemory: false,
   includeEnvironment: false,
   sessionMemoryMode: 'auto',
   sessionMemoryPromptMaxChars: 900,
   sessionMemoryPromptMaxNotesPerCategory: 3,
+  maxContextTokens: 3000,
+  maxMemoriesInPrompt: 4,
+  maxMemoryPromptChars: 700,
+  maxSkillsInPrompt: 8,
+  maxAgentsInPrompt: 8,
+  maxTeamsInPrompt: 4,
+  includeSkillsOnlyWhenRelevant: true,
+  includeAgentsOnlyWhenRelevant: true,
+  includeTeamsOnlyWhenRelevant: true,
+  includeMemoriesOnlyWhenRelevant: true,
   maxClaudeMdFiles: 3,
   maxClaudeMdContentLength: 2000,
 }
+
+interface ContextBlock {
+  key: keyof ContextParts
+  text: string
+  priority: number
+  optional?: boolean
+}
+
+const CONTEXT_CACHE_TTL_MS = 5_000
+
+let cachedClaudeMdKey = ''
+let cachedClaudeMdBlocks: string[] = []
+let cachedSkillsKey = ''
+let cachedSkillsText = ''
 
 // ============================================================================
 // System Context
@@ -84,107 +122,11 @@ export async function getSystemContext(
   config: Partial<ContextConfig> = {},
 ): Promise<string> {
   const mergedConfig = { ...DEFAULT_CONTEXT_CONFIG, ...config }
-  const cwd = getCwd()
-  const parts: string[] = []
-
-  // Date/time
-  if (mergedConfig.includeDate) {
-    parts.push(`Current date: ${new Date().toISOString().split('T')[0]}`)
-  }
-
-  // Working directory
-  if (mergedConfig.includeWorkingDirectory) {
-    parts.push(`Working directory: ${cwd}`)
-  }
-
-  // Git context - enhanced with comprehensive status
-  if (mergedConfig.includeGit) {
-    const gitStatus = await getGitStatus(cwd)
-    if (gitStatus.isGit) {
-      const gitParts: string[] = []
-      if (gitStatus.branch) {
-        gitParts.push(`Branch: ${gitStatus.branch}`)
-      }
-      if (gitStatus.shortCommit) {
-        gitParts.push(`Commit: ${gitStatus.shortCommit}`)
-      }
-      if (gitStatus.ahead > 0 || gitStatus.behind > 0) {
-        gitParts.push(`Ahead: ${gitStatus.ahead}, Behind: ${gitStatus.behind}`)
-      }
-      if (!gitStatus.isClean) {
-        const statusParts: string[] = []
-        if (gitStatus.hasStagedChanges) statusParts.push('staged changes')
-        if (gitStatus.hasUnstagedChanges) statusParts.push('unstaged changes')
-        if (gitStatus.hasUntrackedFiles) statusParts.push('untracked files')
-        gitParts.push(`Status: ${statusParts.join(', ')}`)
-      }
-      if (gitStatus.hasUnpushedCommits) {
-        gitParts.push('Has unpushed commits')
-      }
-      if (gitParts.length > 0) {
-        parts.push(`Git: ${gitParts.join('; ')}`)
-      }
-    }
-  }
-
-  // CLAUDE.md / AGENTS.md files
-  if (mergedConfig.includeClaudeMd) {
-    const claudeMdFiles = loadClaudeMdFiles(cwd)
-    if (claudeMdFiles.length > 0) {
-      for (const file of claudeMdFiles.slice(
-        0,
-        mergedConfig.maxClaudeMdFiles,
-      )) {
-        parts.push(
-          `Contents of ${file.path}:\n${file.content.slice(
-            0,
-            mergedConfig.maxClaudeMdContentLength,
-          )}`,
-        )
-      }
-    }
-  }
-
-  // Skills (use override if provided, else compute)
-  if (mergedConfig.includeSkills) {
-    if (skillContextOverride !== undefined) {
-      if (skillContextOverride) parts.push(skillContextOverride)
-    } else {
-      const skillsText = formatSkillsForPrompt(discoverSkills(cwd))
-      if (skillsText) parts.push(skillsText)
-    }
-  }
-
-  // Memories
-  if (mergedConfig.includeMemories) {
-    const memoriesText = formatMemoriesForPrompt()
-    if (memoriesText) parts.push(memoriesText)
-  }
-
-  if (mergedConfig.sessionMemoryMode !== 'never') {
-    const sessionMemoryText = getSessionMemoryContext(mergedConfig)
-    if (sessionMemoryText) parts.push(sessionMemoryText)
-  }
-
-  // Agents
-  if (mergedConfig.includeAgents) {
-    const agentsText = getAgentsForPrompt()
-    if (agentsText) parts.push(agentsText)
-  }
-
-  // Active teams
-  if (mergedConfig.includeTeams) {
-    const teamsText = getTeamsForPrompt()
-    if (teamsText) parts.push(teamsText)
-  }
-
-  // Environment variables
-  if (mergedConfig.includeEnvironment) {
-    const envText = getEnvironmentContext()
-    if (envText) parts.push(envText)
-  }
-
-  return parts.join('\n\n')
+  const { fullContext } = await getEnhancedContext(
+    skillContextOverride,
+    mergedConfig,
+  )
+  return fullContext
 }
 
 // ============================================================================
@@ -198,16 +140,31 @@ export async function getEnhancedContext(
   const mergedConfig = { ...DEFAULT_CONTEXT_CONFIG, ...config }
   const cwd = getCwd()
   const parts: ContextParts = {}
+  const blocks: ContextBlock[] = []
   let gitStatus: GitStatus | undefined
+  const conversationQuery = extractConversationQuery(
+    mergedConfig.conversationMessages,
+  )
+  const conversationHints = buildConversationHints(conversationQuery)
 
   // Date/time
   if (mergedConfig.includeDate) {
     parts.date = `Current date: ${new Date().toISOString().split('T')[0]}`
+    blocks.push({
+      key: 'date',
+      text: parts.date,
+      priority: 100,
+    })
   }
 
   // Working directory
   if (mergedConfig.includeWorkingDirectory) {
     parts.workingDirectory = `Working directory: ${cwd}`
+    blocks.push({
+      key: 'workingDirectory',
+      text: parts.workingDirectory,
+      priority: 95,
+    })
   }
 
   // Git context
@@ -233,22 +190,28 @@ export async function getEnhancedContext(
       }
       parts.git =
         gitParts.length > 0 ? `Git: ${gitParts.join('; ')}` : undefined
+      if (parts.git) {
+        blocks.push({
+          key: 'git',
+          text: parts.git,
+          priority: 90,
+        })
+      }
     }
   }
 
   // CLAUDE.md files
   if (mergedConfig.includeClaudeMd) {
-    const claudeMdFiles = loadClaudeMdFiles(cwd)
-    if (claudeMdFiles.length > 0) {
-      parts.claudeMd = claudeMdFiles
-        .slice(0, mergedConfig.maxClaudeMdFiles)
-        .map(
-          file =>
-            `Contents of ${file.path}:\n${file.content.slice(
-              0,
-              mergedConfig.maxClaudeMdContentLength,
-            )}`,
-        )
+    parts.claudeMd = getClaudeMdBlocks(cwd, mergedConfig)
+    if (parts.claudeMd.length > 0) {
+      for (const text of parts.claudeMd) {
+        blocks.push({
+          key: 'claudeMd',
+          text,
+          priority: 85,
+          optional: true,
+        })
+      }
     }
   }
 
@@ -257,39 +220,124 @@ export async function getEnhancedContext(
     if (skillContextOverride !== undefined) {
       parts.skills = skillContextOverride || undefined
     } else {
-      parts.skills = formatSkillsForPrompt(discoverSkills(cwd)) || undefined
+      const skills = discoverSkills(cwd)
+      parts.skills = shouldIncludePromptSection(
+        'skills',
+        mergedConfig.includeSkillsOnlyWhenRelevant,
+        conversationHints,
+      )
+        ? getSkillsPrompt(cwd, skills, mergedConfig)
+        : undefined
+    }
+    if (parts.skills) {
+      blocks.push({
+        key: 'skills',
+        text: parts.skills,
+        priority: 40,
+        optional: true,
+      })
     }
   }
 
   // Memories
   if (mergedConfig.includeMemories) {
-    parts.memories = formatMemoriesForPrompt() || undefined
+    parts.memories =
+      shouldIncludePromptSection(
+        'memories',
+        mergedConfig.includeMemoriesOnlyWhenRelevant,
+        conversationHints,
+      ) || !conversationQuery
+        ? formatMemoriesForPromptWithOptions({
+            query: conversationQuery,
+            limit: mergedConfig.maxMemoriesInPrompt,
+            maxChars: mergedConfig.maxMemoryPromptChars,
+          }) || undefined
+        : undefined
+    if (parts.memories) {
+      blocks.push({
+        key: 'memories',
+        text: parts.memories,
+        priority: 55,
+        optional: true,
+      })
+    }
   }
 
   if (mergedConfig.sessionMemoryMode !== 'never') {
     parts.sessionMemory = getSessionMemoryContext(mergedConfig) || undefined
+    if (parts.sessionMemory) {
+      blocks.push({
+        key: 'sessionMemory',
+        text: parts.sessionMemory,
+        priority: 65,
+        optional: true,
+      })
+    }
   }
 
   // Agents
   if (mergedConfig.includeAgents) {
-    parts.agents = getAgentsForPrompt() || undefined
+    parts.agents = shouldIncludePromptSection(
+      'agents',
+      mergedConfig.includeAgentsOnlyWhenRelevant,
+      conversationHints,
+    )
+      ? getAgentsForPromptWithOptions({
+          limit: mergedConfig.maxAgentsInPrompt,
+          query: conversationQuery,
+        }) || undefined
+      : undefined
+    if (parts.agents) {
+      blocks.push({
+        key: 'agents',
+        text: parts.agents,
+        priority: 35,
+        optional: true,
+      })
+    }
   }
 
   // Teams
   if (mergedConfig.includeTeams) {
-    parts.teams = getTeamsForPrompt() || undefined
+    parts.teams = shouldIncludePromptSection(
+      'teams',
+      mergedConfig.includeTeamsOnlyWhenRelevant,
+      conversationHints,
+    )
+      ? getTeamsForPrompt() || undefined
+      : undefined
+    if (parts.teams) {
+      blocks.push({
+        key: 'teams',
+        text: parts.teams,
+        priority: 30,
+        optional: true,
+      })
+    }
+  }
+
+  if (mergedConfig.includeTeamMemory) {
+    parts.teamMemory = undefined
   }
 
   // Environment
   if (mergedConfig.includeEnvironment) {
     parts.environment = getEnvironmentContext() || undefined
+    if (parts.environment) {
+      blocks.push({
+        key: 'environment',
+        text: parts.environment,
+        priority: 20,
+        optional: true,
+      })
+    }
   }
 
-  // Build full context
-  const fullContext = Object.values(parts)
-    .filter(p => p !== undefined)
-    .flat()
-    .join('\n\n')
+  const selectedBlocks = selectContextBlocksForBudget(
+    blocks,
+    mergedConfig.maxContextTokens ?? DEFAULT_CONTEXT_CONFIG.maxContextTokens!,
+  )
+  const fullContext = selectedBlocks.map(block => block.text).join('\n\n')
 
   return {
     fullContext,
@@ -340,6 +388,184 @@ function getSessionMemoryContext(config: ContextConfig): string {
     maxChars: config.sessionMemoryPromptMaxChars,
     maxNotesPerCategory: config.sessionMemoryPromptMaxNotesPerCategory,
   })
+}
+
+function estimatePromptTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
+function extractConversationQuery(
+  messages: BetaMessageParam[] | undefined,
+): string {
+  if (!messages || messages.length === 0) {
+    return ''
+  }
+
+  const chunks: string[] = []
+  for (let i = messages.length - 1; i >= 0 && chunks.length < 3; i--) {
+    const message = messages[i]
+    if (!message) continue
+    const text = getMessagePromptText(message)
+    if (text) {
+      chunks.unshift(text)
+    }
+  }
+
+  return chunks.join(' ').trim()
+}
+
+function getMessagePromptText(message: BetaMessageParam): string {
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  if (!Array.isArray(message.content)) {
+    return ''
+  }
+
+  return message.content
+    .map(block => {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        'text' in block &&
+        typeof block.text === 'string'
+      ) {
+        return block.text
+      }
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        'content' in block &&
+        typeof block.content === 'string'
+      ) {
+        return block.content
+      }
+      return ''
+    })
+    .join(' ')
+}
+
+function buildConversationHints(query: string): Set<string> {
+  const lower = query.toLowerCase()
+  const hints = new Set<string>()
+
+  if (/\bskill\b|\bskills\b|skill tool|workflow|hook|prompt/i.test(query)) {
+    hints.add('skills')
+  }
+  if (
+    /\bagent\b|\bagents\b|\bworker\b|\bcoordinator\b|\bexplore\b|\bplan\b/i.test(
+      query,
+    )
+  ) {
+    hints.add('agents')
+  }
+  if (/\bteam\b|\bswarm\b|\bmembers\b|\bteammate\b/i.test(query)) {
+    hints.add('teams')
+  }
+  if (
+    /\bremember\b|\bmemory\b|\bmemories\b|\bprevious\b|\bcontext\b|\bresume\b/i.test(
+      query,
+    )
+  ) {
+    hints.add('memories')
+  }
+  if (lower.includes('session memory')) {
+    hints.add('memories')
+  }
+
+  return hints
+}
+
+function shouldIncludePromptSection(
+  section: 'skills' | 'agents' | 'teams' | 'memories',
+  onlyWhenRelevant: boolean | undefined,
+  hints: Set<string>,
+): boolean {
+  if (!onlyWhenRelevant) {
+    return true
+  }
+
+  return hints.has(section)
+}
+
+function getClaudeMdBlocks(cwd: string, config: ContextConfig): string[] {
+  const cacheKey = [
+    cwd,
+    config.maxClaudeMdFiles ?? DEFAULT_CONTEXT_CONFIG.maxClaudeMdFiles,
+    config.maxClaudeMdContentLength ??
+      DEFAULT_CONTEXT_CONFIG.maxClaudeMdContentLength,
+  ].join('|')
+
+  if (cachedClaudeMdKey === cacheKey && cachedClaudeMdBlocks.length > 0) {
+    return cachedClaudeMdBlocks
+  }
+
+  const claudeMdFiles = loadClaudeMdFiles(cwd)
+  const blocks = claudeMdFiles
+    .slice(0, config.maxClaudeMdFiles)
+    .map(
+      file =>
+        `Contents of ${file.path}:\n${file.content.slice(
+          0,
+          config.maxClaudeMdContentLength,
+        )}`,
+    )
+
+  cachedClaudeMdKey = cacheKey
+  cachedClaudeMdBlocks = blocks
+  return blocks
+}
+
+function getSkillsPrompt(
+  cwd: string,
+  skills: Skill[],
+  config: ContextConfig,
+): string {
+  const cacheKey = [
+    cwd,
+    skills.length,
+    config.maxSkillsInPrompt ?? DEFAULT_CONTEXT_CONFIG.maxSkillsInPrompt,
+  ].join('|')
+
+  if (cachedSkillsKey === cacheKey && cachedSkillsText) {
+    return cachedSkillsText
+  }
+
+  const limitedSkills = skills.slice(0, config.maxSkillsInPrompt)
+  const prompt = formatSkillsForPrompt(limitedSkills)
+  cachedSkillsKey = cacheKey
+  cachedSkillsText = prompt
+  return prompt
+}
+
+function selectContextBlocksForBudget(
+  blocks: ContextBlock[],
+  maxContextTokens: number,
+): ContextBlock[] {
+  const required = blocks.filter(block => !block.optional)
+  const optional = blocks
+    .filter(block => block.optional)
+    .sort((left, right) => right.priority - left.priority)
+
+  const selected: ContextBlock[] = []
+  let usedTokens = 0
+
+  for (const block of required) {
+    selected.push(block)
+    usedTokens += estimatePromptTokens(block.text)
+  }
+
+  for (const block of optional) {
+    const blockTokens = estimatePromptTokens(block.text)
+    if (usedTokens + blockTokens > maxContextTokens) {
+      continue
+    }
+    selected.push(block)
+    usedTokens += blockTokens
+  }
+
+  return selected
 }
 
 // ============================================================================

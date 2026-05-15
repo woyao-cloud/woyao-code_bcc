@@ -2,6 +2,7 @@ import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
 import { readdirSync, statSync, existsSync } from 'fs'
 import { resolve, isAbsolute, join, relative } from 'path'
 import { getCwd } from '../../../bootstrap/state.js'
+
 export const GlobTool: Tool = {
   name: 'Glob',
   description:
@@ -29,8 +30,10 @@ export const GlobTool: Tool = {
       : resolve(ctx.cwd || getCwd(), basePath)
     try {
       const regex = globToRegex(pattern)
-      const files = findFiles(fullPath, regex)
-      const relativeFiles = files.map(f => relative(fullPath, f)).slice(0, 100)
+      const files = findFiles(fullPath, fullPath, regex)
+      const relativeFiles = files
+        .map(f => relative(fullPath, f).replace(/\\/g, '/'))
+        .slice(0, 100)
       return {
         content: `Found ${files.length} files matching '${pattern}':\n${relativeFiles.join('\n')}`,
         success: true,
@@ -41,21 +44,41 @@ export const GlobTool: Tool = {
   },
   userFacingName: () => 'Glob',
 }
+
 function globToRegex(pattern: string): RegExp {
-  const parts = pattern.split('**')
-  const regex = parts
-    .map(
-      (p, i) =>
-        (i > 0 ? '(.*)' : '') +
-        p
-          .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-          .replace(/\*/g, '[^/]*')
-          .replace(/\?/g, '.'),
-    )
-    .join('')
+  let regex = ''
+  let i = 0
+  while (i < pattern.length) {
+    if (pattern[i] === '*' && pattern[i + 1] === '*') {
+      // ** matches zero or more path segments, including slashes
+      // If followed by '/', include it in the match
+      if (pattern[i + 2] === '/') {
+        regex += '([^/\\\\]*(?:/[^/\\\\]*)*/)?'
+        i += 3 // skip '**/'
+      } else {
+        regex += '([^/\\\\]*(?:/[^/\\\\]*)*)'
+        i += 2 // skip '**'
+      }
+    } else if (pattern[i] === '*') {
+      regex += '[^/\\\\]*'
+      i++
+    } else if (pattern[i] === '?') {
+      regex += '[^/\\\\]'
+      i++
+    } else {
+      const ch = pattern[i]
+      if ('.+^${}()|[\\]'.includes(ch)) {
+        regex += '\\' + ch
+      } else {
+        regex += ch
+      }
+      i++
+    }
+  }
   return new RegExp('^' + regex + '$')
 }
-function findFiles(dir: string, regex: RegExp): string[] {
+
+function findFiles(baseDir: string, dir: string, regex: RegExp): string[] {
   const results: string[] = []
   try {
     if (!existsSync(dir) || !statSync(dir).isDirectory()) return results
@@ -65,10 +88,18 @@ function findFiles(dir: string, regex: RegExp): string[] {
       const fp = join(dir, item)
       try {
         const st = statSync(fp)
-        if (st.isDirectory()) results.push(...findFiles(fp, regex))
-        else if (regex.test(item)) results.push(fp)
-      } catch {}
+        if (st.isDirectory()) {
+          results.push(...findFiles(baseDir, fp, regex))
+        } else {
+          const relPath = relative(baseDir, fp).replace(/\\/g, '/')
+          if (regex.test(relPath)) results.push(fp)
+        }
+      } catch {
+        // skip unreadable files
+      }
     }
-  } catch {}
+  } catch {
+    // skip unreadable directories
+  }
   return results
 }

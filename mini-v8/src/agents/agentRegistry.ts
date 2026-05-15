@@ -122,14 +122,68 @@ export function searchAgents(query: string): AgentDefinition[] {
  * Get agents formatted for inclusion in the system prompt.
  */
 export function getAgentsForPrompt(): string {
+  return getAgentsForPromptWithOptions()
+}
+
+export function getAgentsForPromptWithOptions(options?: {
+  limit?: number
+  query?: string
+}): string {
   const agents = getAllAgents()
   if (agents.length === 0) return ''
 
+  const limit = Math.max(1, options?.limit ?? 8)
+  const query = options?.query?.trim().toLowerCase() ?? ''
+  const selectedAgents = query
+    ? rankAgentsForPrompt(agents, query).slice(0, limit)
+    : agents.slice(0, limit)
+
   const lines = ['Available agents:', '']
-  for (const agent of agents) {
+  for (const agent of selectedAgents) {
     lines.push(`- ${agent.agentType}: ${agent.whenToUse.slice(0, 200)}`)
   }
   return lines.join('\n')
+}
+
+function rankAgentsForPrompt(
+  agents: AgentDefinition[],
+  query: string,
+): AgentDefinition[] {
+  const queryTerms = query
+    .split(/[^a-z0-9_-]+/i)
+    .map(term => term.trim())
+    .filter(Boolean)
+
+  return [...agents].sort((left, right) => {
+    const rightScore = scoreAgentForPrompt(right, queryTerms)
+    const leftScore = scoreAgentForPrompt(left, queryTerms)
+    return rightScore - leftScore
+  })
+}
+
+function scoreAgentForPrompt(
+  agent: AgentDefinition,
+  queryTerms: string[],
+): number {
+  const haystack = [agent.agentType, agent.whenToUse, agent.description ?? '']
+    .join(' ')
+    .toLowerCase()
+
+  let score = 0
+  for (const term of queryTerms) {
+    if (!term) continue
+    if (agent.agentType.toLowerCase().includes(term)) {
+      score += 4
+    }
+    if (agent.whenToUse.toLowerCase().includes(term)) {
+      score += 2
+    }
+    if (haystack.includes(term)) {
+      score += 1
+    }
+  }
+
+  return score
 }
 
 /**

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { getSystemContext } from '../context.js'
+import { addMemory, setMemoryDir } from '../services/memory/memoryStore.js'
 import {
   initSession,
   endSession,
@@ -17,6 +18,7 @@ describe('getSystemContext', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'mini-v8-context-'))
     setSessionMemoryDir(tempDir)
+    setMemoryDir(tempDir)
     initSession()
   })
 
@@ -114,5 +116,47 @@ describe('getSystemContext', () => {
     })
 
     expect(ctx).toBe('')
+  })
+
+  test('uses query-aware memory retrieval for the prompt', async () => {
+    addMemory('Fix auth retry flow in src/auth.ts', ['auth'], 'bug')
+    addMemory('Landing page color review notes', ['design'], 'note')
+
+    const ctx = await getSystemContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeAgents: false,
+      includeTeams: false,
+      includeMemoriesOnlyWhenRelevant: false,
+      maxContextTokens: 300,
+      conversationMessages: [
+        { role: 'user', content: 'continue the auth retry fix' },
+      ],
+    })
+
+    expect(ctx).toContain('Fix auth retry flow')
+    expect(ctx).not.toContain('Landing page color review notes')
+  })
+
+  test('drops optional context blocks when the prompt budget is tight', async () => {
+    addMemory(
+      'Fix auth retry flow in src/auth.ts and keep the migration rationale handy.',
+      ['auth'],
+      'bug',
+    )
+
+    const ctx = await getSystemContext(undefined, {
+      maxContextTokens: 30,
+      conversationMessages: [
+        { role: 'user', content: 'continue the auth retry fix' },
+      ],
+    })
+
+    expect(ctx).toContain('Current date:')
+    expect(ctx).toContain('Working directory:')
+    expect(ctx).not.toContain('User Memories')
   })
 })
