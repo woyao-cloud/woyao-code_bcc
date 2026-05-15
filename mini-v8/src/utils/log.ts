@@ -1,6 +1,10 @@
 /**
- * Enhanced logging utility with in-memory log storage
+ * Enhanced logging utility with in-memory log storage.
+ * ALS-aware: log output automatically includes agent context prefix
+ * when running inside an agent (via AsyncLocalStorage).
  */
+
+import { getAgentLogPrefix } from './agentContext.js'
 
 // ============================================================================
 // Log Types
@@ -70,9 +74,13 @@ export function logError(
   error?: unknown,
   metadata?: Record<string, unknown>,
 ): LogEntry {
-  const entry = addLogEntry('error', message, error, metadata)
+  const prefix = getAgentLogPrefix()
+  const entry = addLogEntry('error', message, error, {
+    ...metadata,
+    agent: prefix,
+  })
   const msg = error ? `${message}: ${formatError(error)}` : message
-  process.stderr.write(`[ERROR] ${msg}\n`)
+  process.stderr.write(`${prefix} [ERROR] ${msg}\n`)
 
   // Also log stack trace if available
   if (error instanceof Error && error.stack) {
@@ -86,8 +94,12 @@ export function logWarning(
   message: string,
   metadata?: Record<string, unknown>,
 ): LogEntry {
-  const entry = addLogEntry('warn', message, undefined, metadata)
-  process.stderr.write(`[WARN] ${message}\n`)
+  const prefix = getAgentLogPrefix()
+  const entry = addLogEntry('warn', message, undefined, {
+    ...metadata,
+    agent: prefix,
+  })
+  process.stderr.write(`${prefix} [WARN] ${message}\n`)
   return entry
 }
 
@@ -95,8 +107,12 @@ export function logInfo(
   message: string,
   metadata?: Record<string, unknown>,
 ): LogEntry {
-  const entry = addLogEntry('info', message, undefined, metadata)
-  process.stderr.write(`[INFO] ${message}\n`)
+  const prefix = getAgentLogPrefix()
+  const entry = addLogEntry('info', message, undefined, {
+    ...metadata,
+    agent: prefix,
+  })
+  process.stderr.write(`${prefix} [INFO] ${message}\n`)
   return entry
 }
 
@@ -106,8 +122,12 @@ export function logDebug(
 ): LogEntry | null {
   // Debug logging - only in verbose mode
   if (process.env.CLAUDE_CODE_DEBUG) {
-    const entry = addLogEntry('debug', message, undefined, metadata)
-    process.stderr.write(`[DEBUG] ${message}\n`)
+    const prefix = getAgentLogPrefix()
+    const entry = addLogEntry('debug', message, undefined, {
+      ...metadata,
+      agent: prefix,
+    })
+    process.stderr.write(`${prefix} [DEBUG] ${message}\n`)
     return entry
   }
   return null

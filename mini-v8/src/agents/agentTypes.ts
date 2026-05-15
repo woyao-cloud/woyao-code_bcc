@@ -50,6 +50,8 @@ export interface AgentDefinition {
   background?: boolean
   /** Initial prompt prepended to first user turn */
   initialPrompt?: string
+  /** Memory scope for persistent cross-session memory */
+  memory?: 'user' | 'project' | 'local'
 }
 
 // ---------- Agent Instance ----------

@@ -4,12 +4,7 @@
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { agentTaskStore } from '../services/taskStore.js'
-import {
-  runAgentSync,
-  runAgentAsync,
-  getCurrentAgentContext,
-  getAgentContext,
-} from '../agents/agentRunner.js'
+import { runAgentSync, runAgentAsync } from '../agents/agentRunner.js'
 import type {
   AgentDefinition,
   AgentTaskState,

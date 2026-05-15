@@ -2,6 +2,7 @@ import { loadClaudeMdFiles } from './utils/claudemd.js'
 import { getGitStatus, GitStatus } from './utils/git.js'
 import { getCwd } from './bootstrap/state.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { isAsyncAgent } from './utils/agentContext.js'
 import {
   discoverSkills,
   formatSkillsForPrompt,
@@ -171,9 +172,53 @@ export async function getEnhancedContext(
   if (cached) {
     return cached
   }
+
+  let gitStatus: GitStatus | undefined
+
+  // Async agents get a minimal context — no ClaudeMd/skills/agents/teams
+  // This saves tokens and avoids unnecessary file I/O in background agents
+  if (isAsyncAgent()) {
+    const minimalParts: ContextParts = {}
+    const minimalBlocks: ContextBlock[] = []
+
+    if (mergedConfig.includeDate) {
+      minimalParts.date = `Current date: ${new Date().toISOString().split('T')[0]}`
+      minimalBlocks.push({
+        key: 'date',
+        text: minimalParts.date,
+        priority: 100,
+      })
+    }
+    if (mergedConfig.includeWorkingDirectory) {
+      minimalParts.workingDirectory = `Working directory: ${cwd}`
+      minimalBlocks.push({
+        key: 'workingDirectory',
+        text: minimalParts.workingDirectory,
+        priority: 90,
+      })
+    }
+    if (mergedConfig.includeGit) {
+      gitStatus = await getGitStatus(cwd ?? '', { maxFiles: 3 })
+      if (gitStatus) {
+        minimalParts.git = gitStatus.promptText
+        minimalBlocks.push({
+          key: 'git',
+          text: gitStatus.promptText,
+          priority: 80,
+        })
+      }
+    }
+
+    const sorted = minimalBlocks.sort((a, b) => b.priority - a.priority)
+    const result: EnhancedContext = {
+      fullContext: sorted.map(b => b.text).join('\n\n'),
+      parts: minimalParts,
+    }
+    setCachedEnhancedContext(cacheKey, result)
+    return result
+  }
   const candidateParts: ContextParts = {}
   const blocks: ContextBlock[] = []
-  let gitStatus: GitStatus | undefined
   const conversationQuery = extractConversationQuery(
     mergedConfig.conversationMessages,
   )

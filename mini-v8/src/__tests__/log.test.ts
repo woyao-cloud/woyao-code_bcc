@@ -37,7 +37,7 @@ describe('logError', () => {
 
   test('logs an error with metadata', () => {
     const entry = logError('Database error', undefined, { db: 'users' })
-    expect(entry.metadata).toEqual({ db: 'users' })
+    expect(entry.metadata).toEqual({ agent: '[main]', db: 'users' })
   })
 })
 

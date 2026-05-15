@@ -79,6 +79,7 @@ export const EXPLORE_AGENT: AgentDefinition = {
   source: 'built-in',
   baseDir: 'built-in',
   model: 'haiku',
+  memory: 'local',
   getSystemPrompt: () => EXPLORE_SYSTEM_PROMPT,
 }
 
@@ -116,6 +117,7 @@ export const PLAN_AGENT: AgentDefinition = {
   disallowedTools: ['Write', 'Edit', 'NotebookEdit'],
   source: 'built-in',
   baseDir: 'built-in',
+  memory: 'project',
   getSystemPrompt: () => PLAN_SYSTEM_PROMPT,
 }
 

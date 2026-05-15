@@ -26,6 +26,12 @@ import { withRetry, isRetryableError } from '../services/retry.js'
 import { getCwd } from '../bootstrap/state.js'
 import { getSystemContext, getUserContext } from '../context.js'
 import { agentTaskStore } from '../services/taskStore.js'
+import {
+  runWithAgentContext,
+  createSubagentContext,
+  getAgentContext,
+} from '../utils/agentContext.js'
+import { loadAgentMemoryPrompt, ensureAgentMemoryDir } from './agentMemory.js'
 import type {
   AgentDefinition,
   AgentInstance,
@@ -42,22 +48,6 @@ import type {
   BetaMessageParam,
   BetaRawMessageStreamEvent,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-
-// ---------- Module-level Agent Context Tracking ----------
-
-/** Active agent contexts tracked by instance ID */
-const activeAgents = new Map<string, AgentRunContext>()
-
-/** Get the current active agent context (last one registered) */
-export function getCurrentAgentContext(): AgentRunContext | undefined {
-  const values = Array.from(activeAgents.values())
-  return values[values.length - 1]
-}
-
-/** Get an agent context by ID */
-export function getAgentContext(agentId: string): AgentRunContext | undefined {
-  return activeAgents.get(agentId)
-}
 
 // ---------- Agent Runner ----------
 
@@ -90,6 +80,30 @@ export interface AgentRunOptions {
 }
 
 /**
+ * Build the full system prompt for an agent, including memory prompt if applicable.
+ */
+function buildAgentSystemPrompt(
+  agentDef: AgentDefinition,
+  cwd: string,
+): string {
+  let prompt = agentDef.getSystemPrompt()
+
+  if (agentDef.memory) {
+    ensureAgentMemoryDir(agentDef.agentType, agentDef.memory, cwd)
+    const memoryPrompt = loadAgentMemoryPrompt(
+      agentDef.agentType,
+      agentDef.memory,
+      cwd,
+    )
+    if (memoryPrompt) {
+      prompt += '\n\n' + memoryPrompt
+    }
+  }
+
+  return prompt
+}
+
+/**
  * Run an agent synchronously (blocks until completion).
  * Returns the aggregated result when the agent completes.
  */
@@ -115,16 +129,6 @@ export async function runAgentSync(
   const cwd = getCwd()
   const startTime = Date.now()
 
-  // Register agent context
-  const agentCtx: AgentRunContext = {
-    agentId: instanceId,
-    agentType: agentDef.agentType,
-    teamName: undefined,
-    isTeamLead: false,
-    startTime,
-  }
-  activeAgents.set(instanceId, agentCtx)
-
   // Get filtered tools for this agent
   const allTools = getTools()
   const filteredTools = filterToolsForAgent(allTools, agentDef)
@@ -133,8 +137,8 @@ export async function runAgentSync(
     toolsMap.set(t.name, t)
   }
 
-  // Build agent system prompt
-  const agentSystemPrompt = agentDef.getSystemPrompt()
+  // Build agent system prompt (with memory prompt if applicable)
+  const agentSystemPrompt = buildAgentSystemPrompt(agentDef, cwd)
 
   const conversation = createConversationBuffers(options.parentMessages ?? [], {
     inheritedToolResultReplacements: options.parentToolResultReplacements,
@@ -144,25 +148,34 @@ export async function runAgentSync(
     content: options.task,
   })
 
-  // Run the shared core loop (sync mode: use parent abort controller = unlinked)
-  const abortController = new AbortController()
-  const result = await runAgentLoopCore({
-    instanceId,
-    agentDef,
-    filteredTools,
-    toolsMap,
-    agentSystemPrompt,
-    conversation,
-    maxTurns,
-    model,
-    cwd,
-    abortController,
-    canUseToolOverride: options.canUseTool,
-    onMessage: options.onMessage,
-    startTime,
+  // Build ALS context for nested agent tracking
+  const alsContext = createSubagentContext({
+    agentId: instanceId,
+    agentType: agentDef.agentType,
+    agentName: agentDef.agentType,
+    isAsync: false,
   })
 
-  activeAgents.delete(instanceId)
+  // Run the shared core loop inside ALS context
+  const abortController = new AbortController()
+  const result = await runWithAgentContext(alsContext, () =>
+    runAgentLoopCore({
+      instanceId,
+      agentDef,
+      filteredTools,
+      toolsMap,
+      agentSystemPrompt,
+      conversation,
+      maxTurns,
+      model,
+      cwd,
+      abortController,
+      canUseToolOverride: options.canUseTool,
+      onMessage: options.onMessage,
+      startTime,
+    }),
+  )
+
   return result
 }
 
@@ -202,15 +215,13 @@ export function runAgentAsync(options: AgentRunOptions): AgentTaskState {
     abortController,
   })
 
-  // Register agent context
-  const agentCtx: AgentRunContext = {
+  // Build ALS context for async agent tracking
+  const alsContext = createSubagentContext({
     agentId: instanceId,
     agentType: agentDef.agentType,
-    teamName: undefined,
-    isTeamLead: false,
-    startTime,
-  }
-  activeAgents.set(instanceId, agentCtx)
+    agentName: agentDef.agentType,
+    isAsync: true,
+  })
 
   // Get filtered tools
   const allTools = getTools()
@@ -220,8 +231,8 @@ export function runAgentAsync(options: AgentRunOptions): AgentTaskState {
     toolsMap.set(t.name, t)
   }
 
-  // Build agent system prompt
-  const agentSystemPrompt = agentDef.getSystemPrompt()
+  // Build agent system prompt (with memory prompt if applicable)
+  const agentSystemPrompt = buildAgentSystemPrompt(agentDef, cwd)
 
   const conversation = createConversationBuffers(options.parentMessages ?? [], {
     inheritedToolResultReplacements: options.parentToolResultReplacements,
@@ -231,22 +242,24 @@ export function runAgentAsync(options: AgentRunOptions): AgentTaskState {
     content: options.task,
   })
 
-  // Fire-and-forget the core loop
-  void runAgentLoopCore({
-    instanceId,
-    agentDef,
-    filteredTools,
-    toolsMap,
-    agentSystemPrompt,
-    conversation,
-    maxTurns,
-    model,
-    cwd,
-    abortController,
-    canUseToolOverride: options.canUseTool,
-    onMessage: options.onMessage,
-    startTime,
-  })
+  // Fire-and-forget the core loop, wrapped in ALS context
+  void runWithAgentContext(alsContext, () =>
+    runAgentLoopCore({
+      instanceId,
+      agentDef,
+      filteredTools,
+      toolsMap,
+      agentSystemPrompt,
+      conversation,
+      maxTurns,
+      model,
+      cwd,
+      abortController,
+      canUseToolOverride: options.canUseTool,
+      onMessage: options.onMessage,
+      startTime,
+    }),
+  )
     .then(result => {
       agentTaskStore.complete(taskState.taskId, result)
       options.onProgress?.({
@@ -263,9 +276,6 @@ export function runAgentAsync(options: AgentRunOptions): AgentTaskState {
       } else {
         agentTaskStore.fail(taskState.taskId, msg)
       }
-    })
-    .finally(() => {
-      activeAgents.delete(instanceId)
     })
 
   return taskState
@@ -604,10 +614,30 @@ function resolveAgentDef(
 
 /**
  * Filter available tools for an agent based on its definition.
+ * For agents with memory scope and a specific tool list, automatically
+ * inject Write, Edit, and Read so they can persist/recall memories.
  */
 function filterToolsForAgent(allTools: Tool[], agent: AgentDefinition): Tool[] {
+  // Resolve effective tool list, injecting Write/Edit/Read for memory agents
+  let effectiveToolList = agent.tools
+  if (
+    agent.memory &&
+    agent.tools &&
+    agent.tools.length > 0 &&
+    agent.tools[0] !== '*'
+  ) {
+    const required = ['Write', 'Edit', 'Read']
+    if (!required.every(t => agent.tools!.includes(t))) {
+      effectiveToolList = [...new Set([...agent.tools, ...required])]
+    }
+  }
+
   // If tools is ['*'], use all tools
-  if (agent.tools && agent.tools.length === 1 && agent.tools[0] === '*') {
+  if (
+    effectiveToolList &&
+    effectiveToolList.length === 1 &&
+    effectiveToolList[0] === '*'
+  ) {
     // Filter out disallowed tools
     if (agent.disallowedTools && agent.disallowedTools.length > 0) {
       return allTools.filter(t => !agent.disallowedTools!.includes(t.name))
@@ -616,8 +646,8 @@ function filterToolsForAgent(allTools: Tool[], agent: AgentDefinition): Tool[] {
   }
 
   // If specific tools are listed, use only those
-  if (agent.tools && agent.tools.length > 0) {
-    const toolSet = new Set(agent.tools)
+  if (effectiveToolList && effectiveToolList.length > 0) {
+    const toolSet = new Set(effectiveToolList)
     return allTools.filter(t => toolSet.has(t.name))
   }
 
