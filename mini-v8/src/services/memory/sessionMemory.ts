@@ -72,11 +72,13 @@ function getSessionMemoryPath(id: string): string {
   return join(getSessionMemoryDir(), id + '.md')
 }
 
-export function initSession(): void {
+export function initSession(existingSessionId?: string): void {
   sessionId =
-    'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+    existingSessionId && existingSessionId.trim()
+      ? existingSessionId.trim()
+      : 'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   lastExtractionTokenCount = 0
-  extractedNotes = []
+  extractedNotes = sessionId ? readSessionMemory(sessionId) : []
   invalidateSystemContextCache()
 }
 

@@ -142,8 +142,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
   const conversation = createConversationBuffers(parentMessages, {
     inheritedToolResultReplacements: parentToolResultReplacements,
   })
-  const fullMessages = conversation.fullMessages
-  fullMessages.push({
+  conversation.fullMessages.push({
     role: 'user',
     content: task,
   })
@@ -285,7 +284,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
           : { type: 'text' as const, text: b.text },
       )
       if (assistantContent.length > 0) {
-        fullMessages.push({
+        conversation.fullMessages.push({
           role: 'assistant',
           content: assistantContent,
         })
@@ -366,7 +365,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
       }
 
       // Add tool results
-      fullMessages.push({
+      conversation.fullMessages.push({
         role: 'user',
         content: toolResults,
       })

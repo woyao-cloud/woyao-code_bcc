@@ -163,6 +163,28 @@ describe('persistSessionMemory and readSessionMemory', () => {
     expect(compactSummary).toContain('Session Memory')
     expect(compactSummary).toContain('Fix auth retry flow')
   })
+
+  test('resumes an existing session ID and reuses the saved memory file', () => {
+    const originalId = getSessionId()
+    expect(originalId).not.toBe(null)
+
+    persistSessionMemory([
+      {
+        id: 'note-1',
+        category: 'decision',
+        content: 'Keep the compact boundary summary on resume',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+
+    endSession()
+    initSession(originalId ?? undefined)
+
+    expect(getSessionId()).toBe(originalId)
+    expect(getSessionMemorySummaryForCompact()).toContain(
+      'Keep the compact boundary summary on resume',
+    )
+  })
 })
 
 describe('session memory prompt policy', () => {

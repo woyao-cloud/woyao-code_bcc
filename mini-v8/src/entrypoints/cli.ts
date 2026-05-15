@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
+import { existsSync } from 'fs'
 import { getSystemContext } from '../context.js'
 import { getTools, registerMCPTools } from '../tools/tools.js'
 import { streamClaudeAPI } from '../services/api/claude.js'
-import { getCwd, state } from '../bootstrap/state.js'
+import { getCwd, setCwd } from '../bootstrap/state.js'
 import { resolveModel } from '../utils/model/model.js'
 import { getAPIKey } from '../utils/auth.js'
 import { getPermissionMode } from '../utils/settings/settings.js'
@@ -26,6 +27,7 @@ import {
   createConversationBuffers,
   projectMessagesForAPI,
   requestForcedCompaction,
+  serializeConversationBuffers,
   type ConversationBuffers,
 } from '../services/messages/apiProjection.js'
 import { withRetry, isRetryableError } from '../services/retry.js'
@@ -57,7 +59,7 @@ import {
   shouldExtractMemory,
   extractSessionNotes,
   persistSessionMemory,
-  getSessionId,
+  getSessionId as getSessionMemoryId,
 } from '../services/memory/sessionMemory.js'
 import { getTeamMemoryForPrompt } from '../services/memory/teamMemorySync.js'
 import {
@@ -74,6 +76,12 @@ import {
   handleTeamCommand,
   handleSwarmCommand,
 } from '../commands/agentCommands.js'
+import {
+  loadConversationSnapshot,
+  loadLatestConversationSnapshot,
+  saveConversationSnapshot,
+  type PersistedSessionSnapshot,
+} from '../services/session/sessionStore.js'
 
 interface ToolUseBlock {
   type: 'tool_use'
@@ -101,7 +109,10 @@ async function main() {
   }
   resetTasks()
 
-  const args = process.argv.slice(2)
+  const cliArgs = parseCLIArgs(process.argv.slice(2))
+  const args = cliArgs.promptArgs
+  const resumeSnapshot = resolveResumeSnapshot(cliArgs)
+  const didRestoreCwd = restoreSnapshotCwd(resumeSnapshot)
   const apiKey = getAPIKey()
   if (!apiKey) {
     const keyName = isOpenAIProvider() ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'
@@ -128,9 +139,25 @@ async function main() {
   )
 
   // Initialize memory system
-  initSession()
-  const sid = getSessionId()
-  process.stderr.write('Memory: session ' + (sid ?? 'none') + ' initialized\n')
+  initSession(resumeSnapshot?.sessionId)
+  const sid = getSessionMemoryId()
+  process.stderr.write(
+    'Memory: session ' +
+      (sid ?? 'none') +
+      (resumeSnapshot ? ' resumed' : ' initialized') +
+      '\n',
+  )
+  if (cliArgs.resumeRequested && !resumeSnapshot) {
+    process.stderr.write('Resume: no saved snapshot found, starting fresh.\n')
+  } else if (resumeSnapshot) {
+    process.stderr.write(
+      'Resume: restored ' +
+        resumeSnapshot.conversation.fullMessages.length +
+        ' full messages' +
+        (didRestoreCwd ? ' and cwd' : '') +
+        '.\n',
+    )
+  }
 
   // Connect MCP servers (best-effort)
   const mcpEntries = await connectMCPServers()
@@ -163,9 +190,9 @@ async function main() {
       if (!prompt) {
         process.exit(1)
       }
-      await runConversation(prompt, config)
+      await runConversation(prompt, config, resumeSnapshot)
     } else {
-      await runREPL(config)
+      await runREPL(config, resumeSnapshot)
     }
   } finally {
     disconnectMCPServers(mcpEntries)
@@ -173,7 +200,10 @@ async function main() {
   }
 }
 
-async function runREPL(_config: unknown) {
+async function runREPL(
+  _config: unknown,
+  resumeSnapshot: PersistedSessionSnapshot | null,
+) {
   const tools = getTools()
   const skillCount = discoverSkills(getCwd()).length
   const agentCount = getAllAgents().length
@@ -190,7 +220,7 @@ async function runREPL(_config: unknown) {
   )
   process.stderr.write('Type /help, Ctrl+C cancel, Ctrl+D exit\n\n')
 
-  const conversation = createConversationBuffers()
+  const conversation = createConversationFromSnapshot(resumeSnapshot)
 
   while (true) {
     const line = await question('> ')
@@ -229,6 +259,7 @@ async function runREPL(_config: unknown) {
 
     if (line === '/clear') {
       clearConversationBuffers(conversation)
+      persistConversationSnapshot(conversation)
       process.stderr.write('Conversation cleared.\n')
       continue
     }
@@ -267,6 +298,7 @@ async function runREPL(_config: unknown) {
             ' full messages).\n',
         )
       }
+      persistConversationSnapshot(conversation)
       continue
     }
 
@@ -358,15 +390,20 @@ async function runREPL(_config: unknown) {
     }
 
     conversation.fullMessages.push({ role: 'user', content: line })
+    persistConversationSnapshot(conversation)
     await runConversationTurn(conversation, tools)
   }
 }
 
-async function runConversation(prompt: string, _config: unknown) {
+async function runConversation(
+  prompt: string,
+  _config: unknown,
+  resumeSnapshot: PersistedSessionSnapshot | null,
+) {
   const tools = getTools()
-  const conversation = createConversationBuffers([
-    { role: 'user', content: prompt },
-  ])
+  const conversation = createConversationFromSnapshot(resumeSnapshot)
+  conversation.fullMessages.push({ role: 'user', content: prompt })
+  persistConversationSnapshot(conversation)
   await runConversationTurn(conversation, tools)
 }
 
@@ -376,7 +413,6 @@ async function runConversationTurn(
 ) {
   const cwd = getCwd()
   const toolsMap = new Map(tools.map(t => [t.name, t]))
-  const fullMessages = conversation.fullMessages
 
   let totalInputTokens = 0
   let totalOutputTokens = 0
@@ -531,10 +567,11 @@ async function runConversationTurn(
         : { type: 'text', text: b.text },
     )
     if (assistantContent.length > 0) {
-      fullMessages.push({
+      conversation.fullMessages.push({
         role: 'assistant',
         content: assistantContent,
       })
+      persistConversationSnapshot(conversation)
     }
 
     if (toolUses.length === 0) {
@@ -612,20 +649,117 @@ async function runConversationTurn(
       })
     }
 
-    fullMessages.push({
+    conversation.fullMessages.push({
       role: 'user',
       content: toolResults,
     })
+    persistConversationSnapshot(conversation)
 
     // Auto-extract session memory if threshold met
-    if (shouldExtractMemory(fullMessages)) {
-      const notes = extractSessionNotes(fullMessages)
+    if (shouldExtractMemory(conversation.fullMessages)) {
+      const notes = extractSessionNotes(conversation.fullMessages)
       persistSessionMemory(notes)
       if (notes.length > 0) {
         process.stderr.write('  Memory: ' + notes.length + ' notes extracted\n')
       }
     }
   }
+}
+
+interface ParsedCLIArgs {
+  promptArgs: string[]
+  resumeRequested: boolean
+  resumeSessionId?: string
+}
+
+function parseCLIArgs(rawArgs: string[]): ParsedCLIArgs {
+  const promptArgs: string[] = []
+  let resumeRequested = false
+  let resumeSessionId: string | undefined
+
+  for (const arg of rawArgs) {
+    if (arg === '--resume') {
+      resumeRequested = true
+      continue
+    }
+
+    if (arg.startsWith('--resume=')) {
+      resumeRequested = true
+      const explicitSessionId = arg.slice('--resume='.length).trim()
+      if (explicitSessionId) {
+        resumeSessionId = explicitSessionId
+      }
+      continue
+    }
+
+    promptArgs.push(arg)
+  }
+
+  return {
+    promptArgs,
+    resumeRequested,
+    ...(resumeSessionId ? { resumeSessionId } : {}),
+  }
+}
+
+function resolveResumeSnapshot(
+  args: ParsedCLIArgs,
+): PersistedSessionSnapshot | null {
+  if (!args.resumeRequested) {
+    return null
+  }
+
+  if (args.resumeSessionId) {
+    return loadConversationSnapshot(args.resumeSessionId)
+  }
+
+  return loadLatestConversationSnapshot()
+}
+
+function restoreSnapshotCwd(
+  snapshot: PersistedSessionSnapshot | null,
+): boolean {
+  const snapshotCwd = snapshot?.cwd?.trim()
+  if (!snapshotCwd || !existsSync(snapshotCwd)) {
+    return false
+  }
+
+  try {
+    process.chdir(snapshotCwd)
+  } catch {}
+
+  setCwd(snapshotCwd)
+  return true
+}
+
+function createConversationFromSnapshot(
+  snapshot: PersistedSessionSnapshot | null,
+): ConversationBuffers {
+  if (!snapshot) {
+    return createConversationBuffers()
+  }
+
+  return createConversationBuffers(snapshot.conversation.fullMessages, {
+    compactBoundaries: snapshot.conversation.compactBoundaries,
+    forceCompactNextProjection:
+      snapshot.conversation.forceCompactNextProjection,
+    restoreToolResultBudgetState: true,
+    toolResultBudgetRecords: snapshot.conversation.toolResultBudgetRecords,
+  })
+}
+
+function persistConversationSnapshot(conversation: ConversationBuffers): void {
+  const sessionId = getSessionMemoryId()
+  if (!sessionId) {
+    return
+  }
+
+  saveConversationSnapshot({
+    sessionId,
+    cwd: getCwd(),
+    model: resolveModel(),
+    conversation: serializeConversationBuffers(conversation),
+  })
 }
 
 function question(prompt: string): Promise<string | null> {
