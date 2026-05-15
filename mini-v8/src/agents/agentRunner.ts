@@ -2,6 +2,8 @@
 // Agent Runner for mini-v8
 // ============================================================
 // Runs a subagent in-process with:
+// - Sync execution (await completion) — runAgentSync
+// - Async execution (fire-and-forget) — runAgentAsync
 // - Isolated message list (forked from parent context)
 // - Tool filtering based on agent definition
 // - Turn limiting
@@ -23,12 +25,15 @@ import {
 import { withRetry, isRetryableError } from '../services/retry.js'
 import { getCwd } from '../bootstrap/state.js'
 import { getSystemContext, getUserContext } from '../context.js'
+import { agentTaskStore } from '../services/taskStore.js'
 import type {
   AgentDefinition,
   AgentInstance,
   AgentStatus,
   AgentResult,
   AgentRunContext,
+  AgentProgress,
+  AgentTaskState,
 } from './agentTypes.js'
 import { getAgent } from './agentRegistry.js'
 import type { Tool, ToolUseContext } from '../Tool.js'
@@ -76,45 +81,37 @@ export interface AgentRunOptions {
     toolName: string,
     input: Record<string, unknown>,
   ) => Promise<boolean>
+  /** Run in background (async, non-blocking). Default: false */
+  runInBackground?: boolean
+  /** Progress callback for async execution */
+  onProgress?: (progress: AgentProgress) => void
+  /** Tool use ID for notification correlation */
+  toolUseId?: string
 }
 
 /**
- * Run an agent as a subagent.
+ * Run an agent synchronously (blocks until completion).
  * Returns the aggregated result when the agent completes.
  */
-export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
-  const {
-    agent: agentOrType,
-    task,
-    parentMessages = [],
-    parentToolResultReplacements,
-    maxTurns: maxTurnsOverride,
-    model: modelOverride,
-    onMessage,
-    canUseTool: canUseToolOverride,
-  } = options
-
-  // Resolve agent definition
-  const agentDef =
-    typeof agentOrType === 'string' ? getAgent(agentOrType) : agentOrType
-
+export async function runAgentSync(
+  options: AgentRunOptions,
+): Promise<AgentResult> {
+  const agentDef = resolveAgentDef(options.agent)
   if (!agentDef) {
     return makeErrorResult(
       'unknown',
-      `Agent type not found: ${String(agentOrType)}`,
+      `Agent type not found: ${String(options.agent)}`,
     )
   }
 
-  // Validate API key
   const apiKey = getAPIKey()
   if (!apiKey) {
     return makeErrorResult(agentDef.agentType, 'API key not configured')
   }
 
-  // Create agent instance
   const instanceId = randomUUID()
-  const maxTurns = maxTurnsOverride ?? agentDef.maxTurns ?? 25
-  const model = modelOverride ?? agentDef.model ?? resolveModel()
+  const maxTurns = options.maxTurns ?? agentDef.maxTurns ?? 25
+  const model = options.model ?? agentDef.model ?? resolveModel()
   const cwd = getCwd()
   const startTime = Date.now()
 
@@ -139,15 +136,182 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
   // Build agent system prompt
   const agentSystemPrompt = agentDef.getSystemPrompt()
 
-  const conversation = createConversationBuffers(parentMessages, {
-    inheritedToolResultReplacements: parentToolResultReplacements,
+  const conversation = createConversationBuffers(options.parentMessages ?? [], {
+    inheritedToolResultReplacements: options.parentToolResultReplacements,
   })
   conversation.fullMessages.push({
     role: 'user',
-    content: task,
+    content: options.task,
   })
 
-  // Run the agent loop
+  // Run the shared core loop (sync mode: use parent abort controller = unlinked)
+  const abortController = new AbortController()
+  const result = await runAgentLoopCore({
+    instanceId,
+    agentDef,
+    filteredTools,
+    toolsMap,
+    agentSystemPrompt,
+    conversation,
+    maxTurns,
+    model,
+    cwd,
+    abortController,
+    canUseToolOverride: options.canUseTool,
+    onMessage: options.onMessage,
+    startTime,
+  })
+
+  activeAgents.delete(instanceId)
+  return result
+}
+
+/**
+ * Run an agent asynchronously (fire-and-forget).
+ * Returns immediately with a task state that tracks the running agent.
+ * The caller receives results via task-notification or polling.
+ */
+export function runAgentAsync(options: AgentRunOptions): AgentTaskState {
+  const agentDef = resolveAgentDef(options.agent)
+  if (!agentDef) {
+    throw new Error(`Agent type not found: ${String(options.agent)}`)
+  }
+
+  const apiKey = getAPIKey()
+  if (!apiKey) {
+    throw new Error('API key not configured')
+  }
+
+  const instanceId = randomUUID()
+  const maxTurns = options.maxTurns ?? agentDef.maxTurns ?? 25
+  const model = options.model ?? agentDef.model ?? resolveModel()
+  const cwd = getCwd()
+  const startTime = Date.now()
+
+  // Async agents get an independent AbortController (survives parent ESC)
+  const abortController = new AbortController()
+
+  // Create task in store
+  const taskState = agentTaskStore.create({
+    agentId: instanceId,
+    agentType: agentDef.agentType,
+    agentName: agentDef.agentType,
+    prompt: options.task,
+    model,
+    toolUseId: options.toolUseId,
+    abortController,
+  })
+
+  // Register agent context
+  const agentCtx: AgentRunContext = {
+    agentId: instanceId,
+    agentType: agentDef.agentType,
+    teamName: undefined,
+    isTeamLead: false,
+    startTime,
+  }
+  activeAgents.set(instanceId, agentCtx)
+
+  // Get filtered tools
+  const allTools = getTools()
+  const filteredTools = filterToolsForAgent(allTools, agentDef)
+  const toolsMap = new Map<string, Tool>()
+  for (const t of filteredTools) {
+    toolsMap.set(t.name, t)
+  }
+
+  // Build agent system prompt
+  const agentSystemPrompt = agentDef.getSystemPrompt()
+
+  const conversation = createConversationBuffers(options.parentMessages ?? [], {
+    inheritedToolResultReplacements: options.parentToolResultReplacements,
+  })
+  conversation.fullMessages.push({
+    role: 'user',
+    content: options.task,
+  })
+
+  // Fire-and-forget the core loop
+  void runAgentLoopCore({
+    instanceId,
+    agentDef,
+    filteredTools,
+    toolsMap,
+    agentSystemPrompt,
+    conversation,
+    maxTurns,
+    model,
+    cwd,
+    abortController,
+    canUseToolOverride: options.canUseTool,
+    onMessage: options.onMessage,
+    startTime,
+  })
+    .then(result => {
+      agentTaskStore.complete(taskState.taskId, result)
+      options.onProgress?.({
+        turnCount: 0,
+        totalTokens: result.totalTokens,
+        toolUseCount: result.totalToolUseCount,
+        lastActivity: Date.now(),
+      })
+    })
+    .catch(err => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (abortController.signal.aborted) {
+        agentTaskStore.kill(taskState.taskId)
+      } else {
+        agentTaskStore.fail(taskState.taskId, msg)
+      }
+    })
+    .finally(() => {
+      activeAgents.delete(instanceId)
+    })
+
+  return taskState
+}
+
+/** @deprecated Use runAgentSync or runAgentAsync instead */
+export const runAgent = runAgentSync
+
+// ---------- Core Agent Loop (shared by sync and async) ----------
+
+interface AgentLoopParams {
+  instanceId: string
+  agentDef: AgentDefinition
+  filteredTools: Tool[]
+  toolsMap: Map<string, Tool>
+  agentSystemPrompt: string
+  conversation: ReturnType<typeof createConversationBuffers>
+  maxTurns: number
+  model: string
+  cwd: string
+  abortController: AbortController
+  canUseToolOverride?: (
+    toolName: string,
+    input: Record<string, unknown>,
+  ) => Promise<boolean>
+  onMessage?: (text: string) => void
+  startTime: number
+}
+
+async function runAgentLoopCore(params: AgentLoopParams): Promise<AgentResult> {
+  const {
+    instanceId,
+    agentDef,
+    filteredTools,
+    toolsMap,
+    agentSystemPrompt,
+    conversation,
+    maxTurns,
+    model,
+    cwd,
+    abortController,
+    canUseToolOverride,
+    onMessage,
+    startTime,
+  } = params
+
   let turnCount = 0
   let totalInputTokens = 0
   let totalOutputTokens = 0
@@ -156,6 +320,11 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
 
   try {
     while (turnCount < maxTurns) {
+      // Check for cancellation
+      if (abortController.signal.aborted) {
+        throw new Error('Agent aborted')
+      }
+
       turnCount++
 
       const { messagesForAPI } = projectMessagesForAPI(conversation, {
@@ -199,6 +368,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
             })
 
             for await (const event of stream) {
+              if (abortController.signal.aborted) break
               const evt = event as BetaRawMessageStreamEvent
               switch (evt.type) {
                 case 'message_start':
@@ -260,12 +430,19 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
           },
         )
       } catch (err: unknown) {
+        if (abortController.signal.aborted) {
+          throw new Error('Agent aborted')
+        }
         const msg = err instanceof Error ? err.message : String(err)
         throw new Error(`Agent API error: ${msg}`)
       }
 
-      if (!streamComplete) {
+      if (!streamComplete && !abortController.signal.aborted) {
         throw new Error('Agent stream incomplete')
+      }
+
+      if (abortController.signal.aborted) {
+        throw new Error('Agent aborted')
       }
 
       // Collect text output
@@ -299,6 +476,12 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
       const toolResults: ContentItem[] = []
       for (const toolUse of toolUses) {
         totalToolUseCount++
+
+        // Check abort before each tool execution
+        if (abortController.signal.aborted) {
+          throw new Error('Agent aborted')
+        }
+
         const tool = toolsMap.get(toolUse.name)
 
         if (!tool) {
@@ -350,7 +533,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
             isBypassPermissionsModeAvailable: false,
           },
           cwd,
-          abortSignal: new AbortController().signal,
+          abortSignal: abortController.signal,
           messages: [],
           isInteractive: false,
         }
@@ -372,8 +555,18 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
     }
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err)
+    if (errorMsg === 'Agent aborted') {
+      return {
+        agentId: instanceId,
+        status: 'cancelled',
+        content: contentOutput,
+        totalTokens: totalInputTokens + totalOutputTokens,
+        totalToolUseCount,
+        totalDurationMs: Date.now() - startTime,
+        error: 'Agent was cancelled',
+      }
+    }
     logError(`Agent [${agentDef.agentType}] error: ${errorMsg}`)
-    activeAgents.delete(instanceId)
     return {
       agentId: instanceId,
       status: 'failed',
@@ -385,12 +578,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
     }
   }
 
-  // Cleanup
-  activeAgents.delete(instanceId)
-
   const totalDurationMs = Date.now() - startTime
   logDebug(
-    `Agent [${agentDef.agentType}] completed: ${turnCount} turns, ${totalInputTokens + totalOutputTokens} tokens, ${totalDurationMs}ms`,
+    `Agent [${agentDef.agentType}] ${instanceId.slice(0, 8)} completed: ${turnCount} turns, ${totalInputTokens + totalOutputTokens} tokens, ${totalDurationMs}ms`,
   )
 
   return {
@@ -404,6 +594,13 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
 }
 
 // ---------- Helpers ----------
+
+function resolveAgentDef(
+  agent: AgentDefinition | string,
+): AgentDefinition | undefined {
+  if (typeof agent === 'string') return getAgent(agent)
+  return agent
+}
 
 /**
  * Filter available tools for an agent based on its definition.

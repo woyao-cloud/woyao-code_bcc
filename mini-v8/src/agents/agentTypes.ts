@@ -176,3 +176,61 @@ export interface AgentResult {
   /** Error message if failed */
   error?: string
 }
+
+// ---------- Agent Progress (for async tracking) ----------
+
+/** Live progress snapshot for a running agent */
+export interface AgentProgress {
+  /** Current turn count */
+  turnCount: number
+  /** Cumulative tokens */
+  totalTokens: number
+  /** Total tool uses so far */
+  toolUseCount: number
+  /** Timestamp of last activity */
+  lastActivity: number
+  /** Optional text summary (from periodic summarization) */
+  summary?: string
+}
+
+// ---------- Agent Task State (for async lifecycle) ----------
+
+/** Unique identifier for a task */
+export type TaskId = string
+
+/** Lifecycle status for an agent task */
+export type AgentTaskStatus = 'running' | 'completed' | 'failed' | 'killed'
+
+/** Full state of an agent task (used by AgentTaskStore) */
+export interface AgentTaskState {
+  /** Unique task ID */
+  taskId: TaskId
+  /** The agent instance ID */
+  agentId: string
+  /** Agent type string */
+  agentType: string
+  /** Display name for the agent */
+  agentName?: string
+  /** Lifecycle status */
+  status: AgentTaskStatus
+  /** Original task prompt */
+  prompt: string
+  /** Model being used */
+  model: string
+  /** Tool use ID that spawned this task (for notification correlation) */
+  toolUseId?: string
+  /** Start timestamp */
+  startTime: number
+  /** End timestamp (set on completion/failure) */
+  endTime?: number
+  /** Live progress data */
+  progress: AgentProgress
+  /** Final result (set on completion) */
+  result?: AgentResult
+  /** Error message (set on failure) */
+  error?: string
+  /** Abort controller for cancellation */
+  abortController: AbortController
+  /** Whether a task-notification has already been sent */
+  notified: boolean
+}

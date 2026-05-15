@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { getSystemContext } from '../context.js'
+import { getEnhancedContext, getSystemContext } from '../context.js'
 import { addMemory, setMemoryDir } from '../services/memory/memoryStore.js'
 import {
   initSession,
@@ -128,6 +128,63 @@ describe('getSystemContext', () => {
 
     expect(ctx).toContain('Session Memory (auto-extracted)')
     expect(ctx).toContain('Carry forward the auth migration plan')
+  })
+
+  test('shrinks session memory under the shared context budget before dropping it', async () => {
+    persistSessionMemory([
+      {
+        id: 'note-1',
+        category: 'decision',
+        content:
+          'Carry forward the auth migration plan with retry handling, cache invalidation, and migration sequencing details.',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'note-2',
+        category: 'context',
+        content:
+          'File: src/auth.ts and src/session.ts should stay aligned during the migration.',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+
+    const roomier = await getSystemContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeams: false,
+      sessionMemoryMode: 'auto',
+      sessionMemoryPromptMaxChars: 220,
+      maxContextTokens: 120,
+      conversationMessages: [
+        { role: 'user', content: 'continue after clearing the REPL' },
+      ],
+    })
+
+    const tighter = await getSystemContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeams: false,
+      sessionMemoryMode: 'auto',
+      sessionMemoryPromptMaxChars: 220,
+      maxContextTokens: 45,
+      conversationMessages: [
+        { role: 'user', content: 'continue after clearing the REPL' },
+      ],
+    })
+
+    expect(roomier).toContain('Session Memory (auto-extracted)')
+    expect(tighter).toContain('Session Memory (auto-extracted)')
+    expect(tighter.length).toBeLessThan(roomier.length)
   })
 
   test('skips session memory once compact summary already consumed it', async () => {
@@ -350,5 +407,44 @@ describe('getSystemContext', () => {
     expect(ctx).toContain('Current date:')
     expect(ctx).toContain('Working directory:')
     expect(ctx).not.toContain('## Team Memory')
+  })
+
+  test('enhanced context parts only keep memory-like blocks that survive selection', async () => {
+    persistSessionMemory([
+      {
+        id: 'note-1',
+        category: 'decision',
+        content: 'Carry forward the auth migration plan',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+    addMemory(
+      'Fix auth retry flow in src/auth.ts and keep the migration rationale handy.',
+      ['auth'],
+      'bug',
+    )
+
+    const ctx = await getEnhancedContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeAgents: false,
+      includeTeams: false,
+      includeMemoriesOnlyWhenRelevant: false,
+      sessionMemoryMode: 'auto',
+      sessionMemoryPromptMaxChars: 220,
+      maxMemoryPromptChars: 220,
+      maxContextTokens: 40,
+      conversationMessages: [
+        { role: 'user', content: 'continue the auth retry fix after resume' },
+      ],
+    })
+
+    expect(ctx.parts.sessionMemory).toContain('Session Memory')
+    expect(ctx.parts.memories).toBeUndefined()
+    expect(ctx.fullContext).toContain('Session Memory')
+    expect(ctx.fullContext).not.toContain('## User Memories')
   })
 })

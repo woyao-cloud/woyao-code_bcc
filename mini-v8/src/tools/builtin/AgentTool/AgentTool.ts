@@ -2,12 +2,12 @@
 // AgentTool for mini-v8
 // ============================================================
 // Tool wrapper that spawns subagents.
-// Analogous to the Agent tool in the full Claude Code.
+// Supports both sync (await) and async (background) execution.
 // ============================================================
 
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
-import { runAgent } from '../../../agents/agentRunner.js'
-import type { AgentResult } from '../../../agents/agentTypes.js'
+import { runAgentSync, runAgentAsync } from '../../../agents/agentRunner.js'
+import type { AgentResult, AgentTaskState } from '../../../agents/agentTypes.js'
 import { getAgent } from '../../../agents/agentRegistry.js'
 
 /** AgentTool input schema */
@@ -35,17 +35,91 @@ const AGENT_TOOL_SCHEMA = {
       type: 'string',
       description: 'Optional model override for this subagent',
     },
+    run_in_background: {
+      type: 'boolean',
+      description:
+        'Set to true to run this agent in the background. The agent will be fire-and-forget, and results will be delivered via task-notification.',
+    },
   },
   required: ['subagent_type', 'description', 'prompt'],
+}
+
+function formatSyncResult(
+  description: string,
+  result: AgentResult,
+): ToolResult {
+  if (result.status === 'completed') {
+    const outputText =
+      result.content.length > 0
+        ? result.content.join('\n\n')
+        : '(Subagent completed but returned no output.)'
+
+    const usageBlock = [
+      '',
+      `agentId: ${result.agentId}`,
+      `<usage>total_tokens: ${result.totalTokens}`,
+      `tool_uses: ${result.totalToolUseCount}`,
+      `duration_ms: ${result.totalDurationMs}</usage>`,
+    ].join('\n')
+
+    return {
+      content: `${description}:\n\n${outputText}\n${usageBlock}`,
+      success: true,
+      metadata: {
+        agentId: result.agentId,
+        status: result.status,
+        totalTokens: result.totalTokens,
+        toolUseCount: result.totalToolUseCount,
+        durationMs: result.totalDurationMs,
+      },
+    }
+  }
+
+  if (result.status === 'cancelled') {
+    return {
+      content: `Agent [${result.agentId}] was cancelled.`,
+      success: false,
+      error: 'Agent cancelled',
+      metadata: { agentId: result.agentId, status: result.status },
+    }
+  }
+
+  return {
+    content: `Agent [${result.agentId}] failed: ${result.error || 'Unknown error'}`,
+    success: false,
+    error: result.error,
+    metadata: { agentId: result.agentId, status: result.status },
+  }
+}
+
+function formatAsyncResult(
+  agentType: string,
+  taskState: AgentTaskState,
+): ToolResult {
+  return {
+    content: [
+      `Launched agent "${agentType}" in background.`,
+      `taskId: ${taskState.taskId}`,
+      `agentId: ${taskState.agentId}`,
+      `Check status with /tasks or wait for task-notification.`,
+    ].join('\n'),
+    success: true,
+    metadata: {
+      status: 'async_launched',
+      taskId: taskState.taskId,
+      agentId: taskState.agentId,
+      agentType,
+    },
+  }
 }
 
 export const AgentTool: Tool = {
   name: 'Agent',
   description:
-    'Spawn a subagent to handle complex, multi-step research or implementation tasks autonomously. Available agent types: Explore (codebase search), Plan (planning), general-purpose (research + implementation), worker (coordinator tasks), Verify (code review).',
+    'Spawn a subagent to handle complex, multi-step research or implementation tasks autonomously. Available agent types: Explore (codebase search), Plan (planning), general-purpose (research + implementation), worker (coordinator tasks), Verify (code review). Use run_in_background: true for non-blocking execution.',
   inputSchema: AGENT_TOOL_SCHEMA,
   prompt:
-    'Use the Agent tool to spawn subagents for complex tasks. Each subagent runs autonomously with its own context, tools, and constraints. Choose the right agent type for the task: Explore for codebase searching, Plan for planning, general-purpose for research/implementation, Verify for code review.',
+    'Use the Agent tool to spawn subagents for complex tasks. Each subagent runs autonomously with its own context, tools, and constraints. Choose the right agent type for the task: Explore for codebase searching, Plan for planning, general-purpose for research/implementation, Verify for code review. Set run_in_background: true to run without blocking.',
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,
@@ -54,6 +128,7 @@ export const AgentTool: Tool = {
     const description = String(input.description ?? 'agent task')
     const prompt = String(input.prompt ?? '')
     const model = input.model ? String(input.model) : undefined
+    const runInBackground = input.run_in_background === true
 
     if (!prompt) {
       return {
@@ -73,49 +148,26 @@ export const AgentTool: Tool = {
       }
     }
 
+    // Determine whether to run async
+    const shouldRunAsync = runInBackground || agentDef.background === true
+
     try {
-      const result: AgentResult = await runAgent({
+      if (shouldRunAsync) {
+        const taskState = runAgentAsync({
+          agent: agentType,
+          task: prompt,
+          model,
+          toolUseId: ctx.toolUse.id,
+        })
+        return formatAsyncResult(agentType, taskState)
+      }
+
+      const result: AgentResult = await runAgentSync({
         agent: agentType,
         task: prompt,
         model,
       })
-
-      if (result.status === 'completed') {
-        const outputText =
-          result.content.length > 0
-            ? result.content.join('\n\n')
-            : '(Subagent completed but returned no output.)'
-
-        const usageBlock = [
-          '',
-          `agentId: ${result.agentId}`,
-          `<usage>total_tokens: ${result.totalTokens}`,
-          `tool_uses: ${result.totalToolUseCount}`,
-          `duration_ms: ${result.totalDurationMs}</usage>`,
-        ].join('\n')
-
-        return {
-          content: `${description}:\n\n${outputText}\n${usageBlock}`,
-          success: true,
-          metadata: {
-            agentId: result.agentId,
-            status: result.status,
-            totalTokens: result.totalTokens,
-            toolUseCount: result.totalToolUseCount,
-            durationMs: result.totalDurationMs,
-          },
-        }
-      } else {
-        return {
-          content: `Agent [${agentType}] failed: ${result.error || 'Unknown error'}`,
-          success: false,
-          error: result.error,
-          metadata: {
-            agentId: result.agentId,
-            status: result.status,
-          },
-        }
-      }
+      return formatSyncResult(description, result)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       return {

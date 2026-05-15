@@ -109,6 +109,8 @@ interface ContextBlock {
   text: string
   priority: number
   optional?: boolean
+  minTokens?: number
+  renderToFit?: (remainingTokens: number) => string | undefined
 }
 
 interface CachedEnhancedContextEntry {
@@ -125,6 +127,7 @@ let cachedSkillsKey = ''
 let cachedSkillsText = ''
 let cachedEnhancedContexts = new Map<string, CachedEnhancedContextEntry>()
 let localContextCacheRevision = -1
+const MEMORY_LIKE_CONTEXT_MIN_TOKENS = 24
 
 // ============================================================================
 // System Context
@@ -168,7 +171,7 @@ export async function getEnhancedContext(
   if (cached) {
     return cached
   }
-  const parts: ContextParts = {}
+  const candidateParts: ContextParts = {}
   const blocks: ContextBlock[] = []
   let gitStatus: GitStatus | undefined
   const conversationQuery = extractConversationQuery(
@@ -178,20 +181,20 @@ export async function getEnhancedContext(
 
   // Date/time
   if (mergedConfig.includeDate) {
-    parts.date = `Current date: ${new Date().toISOString().split('T')[0]}`
+    candidateParts.date = `Current date: ${new Date().toISOString().split('T')[0]}`
     blocks.push({
       key: 'date',
-      text: parts.date,
+      text: candidateParts.date,
       priority: 100,
     })
   }
 
   // Working directory
   if (mergedConfig.includeWorkingDirectory) {
-    parts.workingDirectory = `Working directory: ${cwd}`
+    candidateParts.workingDirectory = `Working directory: ${cwd}`
     blocks.push({
       key: 'workingDirectory',
-      text: parts.workingDirectory,
+      text: candidateParts.workingDirectory,
       priority: 95,
     })
   }
@@ -217,12 +220,12 @@ export async function getEnhancedContext(
       if (gitStatus.hasUnpushedCommits) {
         gitParts.push('Has unpushed commits')
       }
-      parts.git =
+      candidateParts.git =
         gitParts.length > 0 ? `Git: ${gitParts.join('; ')}` : undefined
-      if (parts.git) {
+      if (candidateParts.git) {
         blocks.push({
           key: 'git',
-          text: parts.git,
+          text: candidateParts.git,
           priority: 90,
         })
       }
@@ -231,9 +234,9 @@ export async function getEnhancedContext(
 
   // CLAUDE.md files
   if (mergedConfig.includeClaudeMd) {
-    parts.claudeMd = getClaudeMdBlocks(cwd, mergedConfig)
-    if (parts.claudeMd.length > 0) {
-      for (const text of parts.claudeMd) {
+    candidateParts.claudeMd = getClaudeMdBlocks(cwd, mergedConfig)
+    if (candidateParts.claudeMd.length > 0) {
+      for (const text of candidateParts.claudeMd) {
         blocks.push({
           key: 'claudeMd',
           text,
@@ -247,10 +250,10 @@ export async function getEnhancedContext(
   // Skills
   if (mergedConfig.includeSkills) {
     if (skillContextOverride !== undefined) {
-      parts.skills = skillContextOverride || undefined
+      candidateParts.skills = skillContextOverride || undefined
     } else {
       const skills = discoverSkills(cwd)
-      parts.skills = shouldIncludePromptSection(
+      candidateParts.skills = shouldIncludePromptSection(
         'skills',
         mergedConfig.includeSkillsOnlyWhenRelevant,
         conversationHints,
@@ -258,10 +261,10 @@ export async function getEnhancedContext(
         ? getSkillsPrompt(cwd, skills, mergedConfig)
         : undefined
     }
-    if (parts.skills) {
+    if (candidateParts.skills) {
       blocks.push({
         key: 'skills',
-        text: parts.skills,
+        text: candidateParts.skills,
         priority: 40,
         optional: true,
       })
@@ -270,43 +273,47 @@ export async function getEnhancedContext(
 
   // Memories
   if (mergedConfig.includeMemories) {
-    parts.memories =
+    const shouldIncludeMemories =
       shouldIncludePromptSection(
         'memories',
         mergedConfig.includeMemoriesOnlyWhenRelevant,
         conversationHints,
       ) || !conversationQuery
-        ? formatMemoriesForPromptWithOptions({
+
+    if (shouldIncludeMemories) {
+      const memoryBlock = buildBudgetedMemoryLikeBlock({
+        key: 'memories',
+        priority: 55,
+        maxChars: mergedConfig.maxMemoryPromptChars,
+        minTokens: MEMORY_LIKE_CONTEXT_MIN_TOKENS,
+        render: maxChars =>
+          formatMemoriesForPromptWithOptions({
             query: conversationQuery,
             limit: mergedConfig.maxMemoriesInPrompt,
-            maxChars: mergedConfig.maxMemoryPromptChars,
-          }) || undefined
-        : undefined
-    if (parts.memories) {
-      blocks.push({
-        key: 'memories',
-        text: parts.memories,
-        priority: 55,
-        optional: true,
+            maxChars,
+          }) || undefined,
       })
+      if (memoryBlock) {
+        blocks.push(memoryBlock)
+      }
     }
   }
 
   if (mergedConfig.sessionMemoryMode !== 'never') {
-    parts.sessionMemory = getSessionMemoryContext(mergedConfig) || undefined
-    if (parts.sessionMemory) {
+    const sessionMemoryBlock = buildBudgetedSessionMemoryBlock(
+      mergedConfig,
+      MEMORY_LIKE_CONTEXT_MIN_TOKENS,
+    )
+    if (sessionMemoryBlock) {
       blocks.push({
-        key: 'sessionMemory',
-        text: parts.sessionMemory,
-        priority: 65,
-        optional: true,
+        ...sessionMemoryBlock,
       })
     }
   }
 
   // Agents
   if (mergedConfig.includeAgents) {
-    parts.agents = shouldIncludePromptSection(
+    candidateParts.agents = shouldIncludePromptSection(
       'agents',
       mergedConfig.includeAgentsOnlyWhenRelevant,
       conversationHints,
@@ -316,10 +323,10 @@ export async function getEnhancedContext(
           query: conversationQuery,
         }) || undefined
       : undefined
-    if (parts.agents) {
+    if (candidateParts.agents) {
       blocks.push({
         key: 'agents',
-        text: parts.agents,
+        text: candidateParts.agents,
         priority: 35,
         optional: true,
       })
@@ -328,7 +335,7 @@ export async function getEnhancedContext(
 
   // Teams
   if (mergedConfig.includeTeams) {
-    parts.teams = shouldIncludePromptSection(
+    candidateParts.teams = shouldIncludePromptSection(
       'teams',
       mergedConfig.includeTeamsOnlyWhenRelevant,
       conversationHints,
@@ -338,10 +345,10 @@ export async function getEnhancedContext(
           query: conversationQuery,
         }) || undefined
       : undefined
-    if (parts.teams) {
+    if (candidateParts.teams) {
       blocks.push({
         key: 'teams',
-        text: parts.teams,
+        text: candidateParts.teams,
         priority: 30,
         optional: true,
       })
@@ -349,34 +356,37 @@ export async function getEnhancedContext(
   }
 
   if (mergedConfig.includeTeamMemory) {
-    parts.teamMemory = shouldIncludePromptSection(
+    const shouldIncludeTeamMemory = shouldIncludePromptSection(
       'teams',
       mergedConfig.includeTeamsOnlyWhenRelevant,
       conversationHints,
     )
-      ? getTeamMemoryForPromptWithOptions({
-          query: conversationQuery,
-          limit: mergedConfig.maxTeamsInPrompt,
-          maxChars: mergedConfig.maxTeamMemoryPromptChars,
-        }) || undefined
-      : undefined
-    if (parts.teamMemory) {
-      blocks.push({
+    if (shouldIncludeTeamMemory) {
+      const teamMemoryBlock = buildBudgetedMemoryLikeBlock({
         key: 'teamMemory',
-        text: parts.teamMemory,
         priority: 50,
-        optional: true,
+        maxChars: mergedConfig.maxTeamMemoryPromptChars,
+        minTokens: MEMORY_LIKE_CONTEXT_MIN_TOKENS,
+        render: maxChars =>
+          getTeamMemoryForPromptWithOptions({
+            query: conversationQuery,
+            limit: mergedConfig.maxTeamsInPrompt,
+            maxChars,
+          }) || undefined,
       })
+      if (teamMemoryBlock) {
+        blocks.push(teamMemoryBlock)
+      }
     }
   }
 
   // Environment
   if (mergedConfig.includeEnvironment) {
-    parts.environment = getEnvironmentContext() || undefined
-    if (parts.environment) {
+    candidateParts.environment = getEnvironmentContext() || undefined
+    if (candidateParts.environment) {
       blocks.push({
         key: 'environment',
-        text: parts.environment,
+        text: candidateParts.environment,
         priority: 20,
         optional: true,
       })
@@ -387,6 +397,7 @@ export async function getEnhancedContext(
     blocks,
     mergedConfig.maxContextTokens ?? DEFAULT_CONTEXT_CONFIG.maxContextTokens!,
   )
+  const parts = materializeContextPartsFromBlocks(selectedBlocks)
   const fullContext = selectedBlocks.map(block => block.text).join('\n\n')
 
   const result: EnhancedContext = {
@@ -422,7 +433,10 @@ export async function getUserContextObject(): Promise<UserContext> {
   return {}
 }
 
-function getSessionMemoryContext(config: ContextConfig): string {
+function getSessionMemoryContext(
+  config: ContextConfig,
+  maxCharsOverride?: number,
+): string {
   const sessionId = getSessionId()
   if (!sessionId) {
     return ''
@@ -438,7 +452,7 @@ function getSessionMemoryContext(config: ContextConfig): string {
   }
 
   return getSessionMemoryForPrompt(sessionId, {
-    maxChars: config.sessionMemoryPromptMaxChars,
+    maxChars: maxCharsOverride ?? config.sessionMemoryPromptMaxChars,
     maxNotesPerCategory: config.sessionMemoryPromptMaxNotesPerCategory,
   })
 }
@@ -621,15 +635,124 @@ function selectContextBlocksForBudget(
   }
 
   for (const block of optional) {
-    const blockTokens = estimatePromptTokens(block.text)
+    let text = block.text
+    let blockTokens = estimatePromptTokens(text)
+    if (usedTokens + blockTokens > maxContextTokens && block.renderToFit) {
+      const remainingTokens = Math.max(0, maxContextTokens - usedTokens)
+      const minTokens = Math.max(1, block.minTokens ?? 1)
+      if (remainingTokens < minTokens) {
+        continue
+      }
+      const rendered = block.renderToFit(remainingTokens)
+      if (!rendered) {
+        continue
+      }
+      text = rendered
+      blockTokens = estimatePromptTokens(text)
+    }
+
     if (usedTokens + blockTokens > maxContextTokens) {
       continue
     }
-    selected.push(block)
+
+    selected.push(text === block.text ? block : { ...block, text })
     usedTokens += blockTokens
   }
 
   return selected
+}
+
+function buildBudgetedMemoryLikeBlock(input: {
+  key: keyof ContextParts
+  priority: number
+  maxChars: number | undefined
+  minTokens: number
+  render: (maxChars: number) => string | undefined
+}): ContextBlock | undefined {
+  const defaultMaxChars = normalizeMaxChars(input.maxChars, 900)
+  const initialText = input.render(defaultMaxChars)
+  if (!initialText) {
+    return undefined
+  }
+
+  return {
+    key: input.key,
+    text: initialText,
+    priority: input.priority,
+    optional: true,
+    minTokens: input.minTokens,
+    renderToFit: remainingTokens => {
+      const maxChars = tokensToChars(remainingTokens)
+      if (maxChars <= 0) {
+        return undefined
+      }
+      return input.render(Math.min(defaultMaxChars, maxChars))
+    },
+  }
+}
+
+function buildBudgetedSessionMemoryBlock(
+  config: ContextConfig,
+  minTokens: number,
+): ContextBlock | undefined {
+  const initialText = getSessionMemoryContext(config)
+  if (!initialText) {
+    return undefined
+  }
+
+  const defaultMaxChars = normalizeMaxChars(
+    config.sessionMemoryPromptMaxChars,
+    900,
+  )
+
+  return {
+    key: 'sessionMemory',
+    text: initialText,
+    priority: 65,
+    optional: true,
+    minTokens,
+    renderToFit: remainingTokens => {
+      const maxChars = tokensToChars(remainingTokens)
+      if (maxChars <= 0) {
+        return undefined
+      }
+      return (
+        getSessionMemoryContext(config, Math.min(defaultMaxChars, maxChars)) ||
+        undefined
+      )
+    },
+  }
+}
+
+function materializeContextPartsFromBlocks(
+  blocks: ContextBlock[],
+): ContextParts {
+  const parts: ContextParts = {}
+
+  for (const block of blocks) {
+    if (block.key === 'claudeMd') {
+      if (!parts.claudeMd) {
+        parts.claudeMd = []
+      }
+      parts.claudeMd.push(block.text)
+      continue
+    }
+
+    parts[block.key] = block.text
+  }
+
+  return parts
+}
+
+function normalizeMaxChars(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return Math.max(0, value ?? fallback)
+}
+
+function tokensToChars(tokens: number): number {
+  return Math.max(0, tokens) * 4
 }
 
 function syncContextCacheRevision(): number {
