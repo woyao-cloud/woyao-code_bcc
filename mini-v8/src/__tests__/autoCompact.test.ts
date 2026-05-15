@@ -1,12 +1,16 @@
 import { describe, test, expect } from 'bun:test'
 import {
+  applyToolResultBudget,
   budgetToolResultOutputs,
+  createToolResultBudgetState,
   estimateTokens,
   needsCompaction,
   compactMessages,
   generateCompactionSummary,
   microcompactToolResults,
   MICROCOMPACT_CLEAR_MESSAGE,
+  reconstructToolResultBudgetState,
+  serializeToolResultBudgetState,
   TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE,
 } from '../services/compact/autoCompact.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
@@ -389,5 +393,96 @@ describe('budgetToolResultOutputs', () => {
       maxTokensPerResult: 100,
     })
     expect(JSON.stringify(result)).toContain(hugeOutput)
+  })
+
+  test('freezes previously seen unreplaced results against later stricter budgets', () => {
+    const mediumOutput = 'abcdef '.repeat(120)
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'start' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_1',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_1', content: mediumOutput },
+        ],
+      },
+    ]
+    const state = createToolResultBudgetState()
+
+    const first = applyToolResultBudget(msgs, state, {
+      maxTokensPerMessage: 10_000,
+      maxTokensPerResult: 10_000,
+    })
+    const second = applyToolResultBudget(msgs, state, {
+      maxTokensPerMessage: 20,
+      maxTokensPerResult: 20,
+    })
+
+    expect(first.didBudgetToolResults).toBe(false)
+    expect(state.seenToolUseIds.has('tu_1')).toBe(true)
+    expect(state.replacements.size).toBe(0)
+    expect(second.didBudgetToolResults).toBe(false)
+    expect(JSON.stringify(second.messages)).toContain(mediumOutput)
+  })
+
+  test('reconstructs replacement state and replays stored previews', () => {
+    const hugeOutput = 'abcdef '.repeat(900)
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'start' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_1',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_1', content: hugeOutput },
+        ],
+      },
+    ]
+    const originalState = createToolResultBudgetState()
+    const first = applyToolResultBudget(msgs, originalState, {
+      maxTokensPerResult: 100,
+      maxPreviewChars: 100,
+    })
+    const records = serializeToolResultBudgetState(originalState)
+    const restoredState = reconstructToolResultBudgetState(msgs, records)
+    const replay = applyToolResultBudget(msgs, restoredState, {
+      maxTokensPerResult: 100,
+      maxPreviewChars: 100,
+    })
+
+    expect(first.didBudgetToolResults).toBe(true)
+    expect(records.length).toBe(1)
+    expect(replay.didBudgetToolResults).toBe(true)
+    const replayContent = replay.messages[2]
+    expect(Array.isArray(replayContent?.content)).toBe(true)
+    const replayBlock = Array.isArray(replayContent?.content)
+      ? replayContent.content[0]
+      : undefined
+    expect(
+      typeof replayBlock === 'object' &&
+        replayBlock !== null &&
+        'content' in replayBlock
+        ? replayBlock.content
+        : undefined,
+    ).toBe(records[0]?.replacement)
   })
 })

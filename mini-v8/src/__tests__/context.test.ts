@@ -17,6 +17,16 @@ import {
   createConversationBuffers,
   requestForcedCompaction,
 } from '../services/messages/apiProjection.js'
+import {
+  createTeam,
+  addTeamMember,
+  resetTeamManager,
+  setTeamsBaseDir,
+} from '../agents/teamManager.js'
+import {
+  setTeamMemoryDir,
+  writeTeamMemory,
+} from '../services/memory/teamMemorySync.js'
 
 let tempDir: string
 const originalCwd = getCwd()
@@ -31,12 +41,17 @@ describe('getSystemContext', () => {
     )
     setSessionMemoryDir(tempDir)
     setMemoryDir(tempDir)
+    setTeamMemoryDir(join(tempDir, 'team-memory'))
+    setTeamsBaseDir(tempDir)
     setCwd(tempDir)
     initSession()
   })
 
   afterEach(() => {
     endSession()
+    resetTeamManager()
+    setTeamMemoryDir(null)
+    setTeamsBaseDir(null)
     setCwd(originalCwd)
     try {
       rmSync(tempDir, { recursive: true, force: true })
@@ -249,5 +264,91 @@ describe('getSystemContext', () => {
     const after = await getSystemContext(undefined, config)
     expect(after).toContain('gamma')
     expect(after).not.toContain('alpha')
+  })
+
+  test('uses query-aware team retrieval for the prompt', async () => {
+    createTeam('frontend-swarm', 'Handles landing page and design polish')
+    addTeamMember('frontend-swarm', 'designer', 'design-reviewer')
+    createTeam('infra-squad', 'Handles CI, build, and deployment fixes')
+    addTeamMember('infra-squad', 'ops', 'deploy-worker')
+
+    const ctx = await getSystemContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeamsOnlyWhenRelevant: true,
+      maxContextTokens: 500,
+      conversationMessages: [
+        { role: 'user', content: 'ask the frontend team to review the design' },
+      ],
+    })
+
+    expect(ctx).toContain('frontend-swarm')
+    expect(ctx).toContain('designer')
+    expect(ctx).not.toContain('infra-squad')
+  })
+
+  test('injects query-aware team memory when enabled and relevant', async () => {
+    writeTeamMemory(
+      'frontend-swarm',
+      'Landing page design decisions: keep warm orange accents and avoid generic hero layouts.',
+    )
+    writeTeamMemory(
+      'infra-squad',
+      'CI stabilization notes: retry flaky build steps and keep cache keys stable.',
+    )
+
+    const ctx = await getSystemContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeams: false,
+      includeTeamMemory: true,
+      includeTeamsOnlyWhenRelevant: true,
+      maxContextTokens: 500,
+      conversationMessages: [
+        {
+          role: 'user',
+          content: 'continue the frontend design review for the landing page',
+        },
+      ],
+    })
+
+    expect(ctx).toContain('## Team Memory')
+    expect(ctx).toContain('frontend-swarm')
+    expect(ctx).toContain('Landing page design decisions')
+    expect(ctx).not.toContain('infra-squad')
+  })
+
+  test('drops team memory when the overall prompt budget is tight', async () => {
+    writeTeamMemory(
+      'frontend-swarm',
+      'Landing page design decisions: keep warm orange accents and avoid generic hero layouts.',
+    )
+
+    const ctx = await getSystemContext(undefined, {
+      includeMemories: false,
+      includeAgents: false,
+      includeTeamMemory: true,
+      includeTeams: false,
+      includeSkillsOnlyWhenRelevant: false,
+      includeTeamsOnlyWhenRelevant: false,
+      maxContextTokens: 30,
+      conversationMessages: [
+        { role: 'user', content: 'review frontend team memory' },
+      ],
+    })
+
+    expect(ctx).toContain('Current date:')
+    expect(ctx).toContain('Working directory:')
+    expect(ctx).not.toContain('## Team Memory')
   })
 })

@@ -16,7 +16,8 @@ import {
   type SessionMemoryPromptMode,
 } from './services/memory/sessionMemory.js'
 import { getAgentsForPromptWithOptions } from './agents/agentRegistry.js'
-import { getTeamsForPrompt } from './agents/teamManager.js'
+import { getTeamsForPromptWithOptions } from './agents/teamManager.js'
+import { getTeamMemoryForPromptWithOptions } from './services/memory/teamMemorySync.js'
 import { getSystemContextCacheRevision } from './services/context/contextCacheState.js'
 
 // ============================================================================
@@ -41,6 +42,7 @@ export interface ContextConfig {
   maxContextTokens?: number
   maxMemoriesInPrompt?: number
   maxMemoryPromptChars?: number
+  maxTeamMemoryPromptChars?: number
   maxSkillsInPrompt?: number
   maxAgentsInPrompt?: number
   maxTeamsInPrompt?: number
@@ -90,6 +92,7 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   maxContextTokens: 3000,
   maxMemoriesInPrompt: 4,
   maxMemoryPromptChars: 700,
+  maxTeamMemoryPromptChars: 700,
   maxSkillsInPrompt: 8,
   maxAgentsInPrompt: 8,
   maxTeamsInPrompt: 4,
@@ -330,7 +333,10 @@ export async function getEnhancedContext(
       mergedConfig.includeTeamsOnlyWhenRelevant,
       conversationHints,
     )
-      ? getTeamsForPrompt() || undefined
+      ? getTeamsForPromptWithOptions({
+          limit: mergedConfig.maxTeamsInPrompt,
+          query: conversationQuery,
+        }) || undefined
       : undefined
     if (parts.teams) {
       blocks.push({
@@ -343,7 +349,25 @@ export async function getEnhancedContext(
   }
 
   if (mergedConfig.includeTeamMemory) {
-    parts.teamMemory = undefined
+    parts.teamMemory = shouldIncludePromptSection(
+      'teams',
+      mergedConfig.includeTeamsOnlyWhenRelevant,
+      conversationHints,
+    )
+      ? getTeamMemoryForPromptWithOptions({
+          query: conversationQuery,
+          limit: mergedConfig.maxTeamsInPrompt,
+          maxChars: mergedConfig.maxTeamMemoryPromptChars,
+        }) || undefined
+      : undefined
+    if (parts.teamMemory) {
+      blocks.push({
+        key: 'teamMemory',
+        text: parts.teamMemory,
+        priority: 50,
+        optional: true,
+      })
+    }
   }
 
   // Environment
@@ -490,6 +514,13 @@ function buildConversationHints(query: string): Set<string> {
     hints.add('agents')
   }
   if (/\bteam\b|\bswarm\b|\bmembers\b|\bteammate\b/i.test(query)) {
+    hints.add('teams')
+  }
+  if (
+    /\bfrontend\b|\bbackend\b|\binfra\b|\bdesign\b|\breview\b|\blanding page\b|\bdeploy\b|\bci\b/i.test(
+      query,
+    )
+  ) {
     hints.add('teams')
   }
   if (
@@ -675,6 +706,7 @@ function serializeContextConfig(
     maxContextTokens: config.maxContextTokens,
     maxMemoriesInPrompt: config.maxMemoriesInPrompt,
     maxMemoryPromptChars: config.maxMemoryPromptChars,
+    maxTeamMemoryPromptChars: config.maxTeamMemoryPromptChars,
     maxSkillsInPrompt: config.maxSkillsInPrompt,
     maxAgentsInPrompt: config.maxAgentsInPrompt,
     maxTeamsInPrompt: config.maxTeamsInPrompt,

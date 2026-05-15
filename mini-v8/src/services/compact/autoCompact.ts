@@ -33,12 +33,50 @@ export const TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE =
 const TOOL_RESULT_BUDGET_PREVIEW_PREFIX = '[Compacted '
 
 type ContentBlock = Record<string, unknown>
-interface ToolResultBudgetCandidate {
-  blockIndex: number
+export interface ToolResultBudgetState {
+  seenToolUseIds: Set<string>
+  replacements: Map<string, string>
+}
+
+export interface ToolResultBudgetReplacementRecord {
+  kind: 'tool-result'
   toolUseId: string
+  replacement: string
+}
+
+interface ToolResultBudgetCandidate {
   tokens: number
   preview: string
   previewTokens: number
+  toolName: string
+  toolUseId: string
+}
+
+interface ToolResultBudgetCandidateGroup {
+  candidates: ToolResultBudgetCandidate[]
+}
+
+interface ToolResultBudgetApplyResult {
+  didBudgetToolResults: boolean
+  messages: BetaMessageParam[]
+  newlyReplaced: ToolResultBudgetReplacementRecord[]
+}
+
+interface ToolResultBudgetOptions {
+  maxTokensPerMessage?: number
+  maxTokensPerResult?: number
+  maxPreviewChars?: number
+}
+
+interface ToolResultBudgetPartition {
+  fresh: ToolResultBudgetCandidate[]
+  frozen: ToolResultBudgetCandidate[]
+  mustReapply: Array<
+    ToolResultBudgetCandidate & {
+      replacement: string
+      replacementTokens: number
+    }
+  >
 }
 
 function estimateTextTokens(text: string): number {
@@ -373,14 +411,87 @@ export function microcompactToolResults(
   return changed ? nextMessages : messages
 }
 
+export function createToolResultBudgetState(): ToolResultBudgetState {
+  return {
+    seenToolUseIds: new Set<string>(),
+    replacements: new Map<string, string>(),
+  }
+}
+
+export function serializeToolResultBudgetState(
+  state: ToolResultBudgetState,
+): ToolResultBudgetReplacementRecord[] {
+  return Array.from(state.replacements.entries())
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([toolUseId, replacement]) => ({
+      kind: 'tool-result',
+      toolUseId,
+      replacement,
+    }))
+}
+
+export function reconstructToolResultBudgetState(
+  messages: BetaMessageParam[],
+  records: ToolResultBudgetReplacementRecord[],
+  inheritedReplacements?: ReadonlyMap<string, string>,
+): ToolResultBudgetState {
+  const state = createToolResultBudgetState()
+  const toolNames = getToolUseNameMap(messages)
+  const candidateGroups = collectBudgetCandidateGroups(
+    messages,
+    toolNames,
+    TOOL_RESULT_PREVIEW_MAX_CHARS,
+  )
+  const candidateIds = new Set(
+    candidateGroups.flatMap(group =>
+      group.candidates.map(candidate => candidate.toolUseId),
+    ),
+  )
+
+  for (const toolUseId of candidateIds) {
+    state.seenToolUseIds.add(toolUseId)
+  }
+
+  for (const record of records) {
+    if (candidateIds.has(record.toolUseId)) {
+      state.replacements.set(record.toolUseId, record.replacement)
+    }
+  }
+
+  if (inheritedReplacements) {
+    for (const [toolUseId, replacement] of inheritedReplacements.entries()) {
+      if (candidateIds.has(toolUseId) && !state.replacements.has(toolUseId)) {
+        state.replacements.set(toolUseId, replacement)
+      }
+    }
+  }
+
+  return state
+}
+
+export function getToolResultBudgetReplacementMap(
+  state: ToolResultBudgetState,
+): ReadonlyMap<string, string> {
+  return state.replacements
+}
+
 export function budgetToolResultOutputs(
   messages: BetaMessageParam[],
-  options?: {
-    maxTokensPerMessage?: number
-    maxTokensPerResult?: number
-    maxPreviewChars?: number
-  },
+  options?: ToolResultBudgetOptions,
 ): BetaMessageParam[] {
+  const result = applyToolResultBudget(
+    messages,
+    createToolResultBudgetState(),
+    options,
+  )
+  return result.messages
+}
+
+export function applyToolResultBudget(
+  messages: BetaMessageParam[],
+  state: ToolResultBudgetState,
+  options?: ToolResultBudgetOptions,
+): ToolResultBudgetApplyResult {
   const maxTokensPerMessage = Math.max(
     1,
     options?.maxTokensPerMessage ?? TOOL_RESULT_MAX_TOKENS_PER_MESSAGE,
@@ -394,111 +505,54 @@ export function budgetToolResultOutputs(
     options?.maxPreviewChars ?? TOOL_RESULT_PREVIEW_MAX_CHARS,
   )
   const toolNames = getToolUseNameMap(messages)
-  let changed = false
+  const candidateGroups = collectBudgetCandidateGroups(
+    messages,
+    toolNames,
+    maxPreviewChars,
+  )
+  const replacementMap = new Map<string, string>()
+  const newlyReplaced: ToolResultBudgetReplacementRecord[] = []
 
-  const nextMessages = messages.map(message => {
-    if (message.role !== 'user' || !Array.isArray(message.content)) {
-      return message
+  for (const group of candidateGroups) {
+    const partition = partitionBudgetCandidates(group.candidates, state)
+    const selected = selectFreshCandidatesToReplace(
+      partition,
+      maxTokensPerMessage,
+      maxTokensPerResult,
+    )
+
+    for (const candidate of partition.mustReapply) {
+      replacementMap.set(candidate.toolUseId, candidate.replacement)
     }
-
-    const candidates: ToolResultBudgetCandidate[] = []
-    let totalTokens = 0
-
-    for (const [index, block] of message.content.entries()) {
-      if (!isToolResultBlock(block) || block.is_error === true) {
-        continue
-      }
-
-      const toolName = toolNames.get(block.tool_use_id)
-      if (!toolName || !COMPACTABLE_TOOL_NAMES.has(toolName)) {
-        continue
-      }
-
-      const rawContent = stringifyToolResultContent(block.content)
-      if (
-        !rawContent ||
-        rawContent === MICROCOMPACT_CLEAR_MESSAGE ||
-        isBudgetedToolResultContent(rawContent)
-      ) {
-        continue
-      }
-
-      const tokens = estimateTextTokens(rawContent)
-      totalTokens += tokens
-
-      const preview = buildToolResultPreview(
-        toolName,
-        rawContent,
-        maxPreviewChars,
-      )
-      candidates.push({
-        blockIndex: index,
-        toolUseId: block.tool_use_id,
-        tokens,
-        preview,
-        previewTokens: estimateTextTokens(preview),
-      })
-    }
-
-    if (candidates.length === 0) {
-      return message
-    }
-
-    const replacements = new Map<number, string>()
-    let remainingTokens = totalTokens
-
-    for (const candidate of candidates) {
-      if (candidate.tokens <= maxTokensPerResult) {
-        continue
-      }
-
-      replacements.set(candidate.blockIndex, candidate.preview)
-      remainingTokens =
-        remainingTokens - candidate.tokens + candidate.previewTokens
-    }
-
-    if (remainingTokens > maxTokensPerMessage) {
-      const remainingCandidates = candidates
-        .filter(candidate => !replacements.has(candidate.blockIndex))
-        .sort((left, right) => right.tokens - left.tokens)
-
-      for (const candidate of remainingCandidates) {
-        if (remainingTokens <= maxTokensPerMessage) {
-          break
-        }
-
-        replacements.set(candidate.blockIndex, candidate.preview)
-        remainingTokens =
-          remainingTokens - candidate.tokens + candidate.previewTokens
+    for (const candidate of selected) {
+      replacementMap.set(candidate.toolUseId, candidate.preview)
+      if (!state.replacements.has(candidate.toolUseId)) {
+        state.replacements.set(candidate.toolUseId, candidate.preview)
+        newlyReplaced.push({
+          kind: 'tool-result',
+          toolUseId: candidate.toolUseId,
+          replacement: candidate.preview,
+        })
       }
     }
-
-    if (replacements.size === 0) {
-      return message
+    for (const candidate of group.candidates) {
+      state.seenToolUseIds.add(candidate.toolUseId)
     }
+  }
 
-    changed = true
+  if (replacementMap.size === 0) {
     return {
-      ...message,
-      content: message.content.map((block, index) => {
-        if (!isToolResultBlock(block)) {
-          return block
-        }
-
-        const preview = replacements.get(index)
-        if (!preview) {
-          return block
-        }
-
-        return {
-          ...block,
-          content: preview,
-        }
-      }),
+      messages,
+      didBudgetToolResults: false,
+      newlyReplaced,
     }
-  })
+  }
 
-  return changed ? nextMessages : messages
+  return {
+    messages: replaceToolResultContents(messages, replacementMap),
+    didBudgetToolResults: true,
+    newlyReplaced,
+  }
 }
 
 function stringifyToolResultContent(content: unknown): string {
@@ -549,4 +603,186 @@ function buildToolResultPreview(
   return (
     header + '\n' + previewText + '\n' + TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE
   )
+}
+
+function collectBudgetCandidateGroups(
+  messages: BetaMessageParam[],
+  toolNames: Map<string, string>,
+  maxPreviewChars: number,
+): ToolResultBudgetCandidateGroup[] {
+  const groups: ToolResultBudgetCandidateGroup[] = []
+
+  for (const message of messages) {
+    const candidates = collectBudgetCandidatesFromMessage(
+      message,
+      toolNames,
+      maxPreviewChars,
+    )
+    if (candidates.length === 0) {
+      continue
+    }
+    groups.push({ candidates })
+  }
+
+  return groups
+}
+
+function collectBudgetCandidatesFromMessage(
+  message: BetaMessageParam,
+  toolNames: Map<string, string>,
+  maxPreviewChars: number,
+): ToolResultBudgetCandidate[] {
+  if (message.role !== 'user' || !Array.isArray(message.content)) {
+    return []
+  }
+
+  const candidates: ToolResultBudgetCandidate[] = []
+  for (const block of message.content) {
+    if (!isToolResultBlock(block) || block.is_error === true) {
+      continue
+    }
+
+    const toolName = toolNames.get(block.tool_use_id)
+    if (!toolName || !COMPACTABLE_TOOL_NAMES.has(toolName)) {
+      continue
+    }
+
+    const rawContent = stringifyToolResultContent(block.content)
+    if (
+      !rawContent ||
+      rawContent === MICROCOMPACT_CLEAR_MESSAGE ||
+      isBudgetedToolResultContent(rawContent)
+    ) {
+      continue
+    }
+
+    const preview = buildToolResultPreview(
+      toolName,
+      rawContent,
+      maxPreviewChars,
+    )
+    candidates.push({
+      toolUseId: block.tool_use_id,
+      toolName,
+      tokens: estimateTextTokens(rawContent),
+      preview,
+      previewTokens: estimateTextTokens(preview),
+    })
+  }
+
+  return candidates
+}
+
+function partitionBudgetCandidates(
+  candidates: ToolResultBudgetCandidate[],
+  state: ToolResultBudgetState,
+): ToolResultBudgetPartition {
+  return candidates.reduce<ToolResultBudgetPartition>(
+    (acc, candidate) => {
+      const replacement = state.replacements.get(candidate.toolUseId)
+      if (replacement !== undefined) {
+        acc.mustReapply.push({
+          ...candidate,
+          replacement,
+          replacementTokens: estimateTextTokens(replacement),
+        })
+      } else if (state.seenToolUseIds.has(candidate.toolUseId)) {
+        acc.frozen.push(candidate)
+      } else {
+        acc.fresh.push(candidate)
+      }
+      return acc
+    },
+    {
+      fresh: [],
+      frozen: [],
+      mustReapply: [],
+    },
+  )
+}
+
+function selectFreshCandidatesToReplace(
+  partition: ToolResultBudgetPartition,
+  maxTokensPerMessage: number,
+  maxTokensPerResult: number,
+): ToolResultBudgetCandidate[] {
+  const selected = new Set<string>()
+  let visibleTokens =
+    partition.frozen.reduce((sum, candidate) => sum + candidate.tokens, 0) +
+    partition.fresh.reduce((sum, candidate) => sum + candidate.tokens, 0) +
+    partition.mustReapply.reduce(
+      (sum, candidate) => sum + candidate.replacementTokens,
+      0,
+    )
+
+  const oversizeFresh = partition.fresh
+    .filter(candidate => candidate.tokens > maxTokensPerResult)
+    .sort((left, right) => right.tokens - left.tokens)
+
+  for (const candidate of oversizeFresh) {
+    if (selected.has(candidate.toolUseId)) {
+      continue
+    }
+    selected.add(candidate.toolUseId)
+    visibleTokens = visibleTokens - candidate.tokens + candidate.previewTokens
+  }
+
+  if (visibleTokens > maxTokensPerMessage) {
+    const remainingFresh = partition.fresh
+      .filter(candidate => !selected.has(candidate.toolUseId))
+      .sort((left, right) => right.tokens - left.tokens)
+
+    for (const candidate of remainingFresh) {
+      if (visibleTokens <= maxTokensPerMessage) {
+        break
+      }
+      selected.add(candidate.toolUseId)
+      visibleTokens = visibleTokens - candidate.tokens + candidate.previewTokens
+    }
+  }
+
+  return partition.fresh.filter(candidate => selected.has(candidate.toolUseId))
+}
+
+function replaceToolResultContents(
+  messages: BetaMessageParam[],
+  replacementMap: ReadonlyMap<string, string>,
+): BetaMessageParam[] {
+  let changed = false
+
+  const nextMessages = messages.map(message => {
+    if (message.role !== 'user' || !Array.isArray(message.content)) {
+      return message
+    }
+
+    let messageChanged = false
+    const nextContent = message.content.map(block => {
+      if (!isToolResultBlock(block)) {
+        return block
+      }
+
+      const replacement = replacementMap.get(block.tool_use_id)
+      if (replacement === undefined) {
+        return block
+      }
+
+      messageChanged = true
+      return {
+        ...block,
+        content: replacement,
+      }
+    })
+
+    if (!messageChanged) {
+      return message
+    }
+
+    changed = true
+    return {
+      ...message,
+      content: nextContent,
+    }
+  })
+
+  return changed ? nextMessages : messages
 }

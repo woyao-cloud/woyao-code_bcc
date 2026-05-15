@@ -244,7 +244,7 @@ async function runREPL(_config: unknown) {
     if (line === '/compact') {
       const activeModel = resolveModel()
       const { didMicrocompact, didBudgetToolResults, didCompact } =
-        projectMessagesForAPI(conversation.fullMessages, {
+        projectMessagesForAPI(conversation, {
           model: activeModel,
           forceCompact: true,
         })
@@ -393,7 +393,7 @@ async function runConversationTurn(
 
     const activeModel = resolveModel()
     const forceCompact = consumeForcedCompaction(conversation)
-    const { messagesForAPI } = projectMessagesForAPI(fullMessages, {
+    const { messagesForAPI } = projectMessagesForAPI(conversation, {
       model: activeModel,
       forceCompact,
     })

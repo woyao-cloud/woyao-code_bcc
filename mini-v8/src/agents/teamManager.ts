@@ -294,7 +294,14 @@ export function teamExists(teamName: string): boolean {
  * Format active teams for inclusion in the system prompt.
  */
 export function getTeamsForPrompt(): string {
-  const teams = getAllTeams()
+  return getTeamsForPromptWithOptions()
+}
+
+export function getTeamsForPromptWithOptions(options?: {
+  query?: string
+  limit?: number
+}): string {
+  const teams = selectTeamsForPrompt(options)
   if (teams.length === 0) return ''
 
   const lines = ['Active teams:', '']
@@ -303,11 +310,114 @@ export function getTeamsForPrompt(): string {
       .map(m => `  - ${m.name} (${m.agentType}, ${m.role})`)
       .join('\n')
     lines.push(
-      `Team "${team.name}": ${team.members.length} members\n${memberSummary}`,
+      `Team "${team.name}": ${team.members.length} members${team.description ? ` - ${team.description}` : ''}\n${memberSummary}`,
     )
   }
   return lines.join('\n')
 }
+
+function selectTeamsForPrompt(options?: {
+  query?: string
+  limit?: number
+}): TeamDefinition[] {
+  const teams = getAllTeams()
+  if (teams.length === 0) return []
+
+  const limit = Math.max(1, options?.limit ?? 4)
+  const query = options?.query?.trim().toLowerCase() ?? ''
+  if (!query) {
+    return teams.slice(0, limit)
+  }
+
+  const ranked = rankTeamsForPrompt(teams, query)
+    .filter(entry => entry.score > 0)
+    .slice(0, limit)
+    .map(entry => entry.team)
+
+  if (ranked.length > 0) {
+    return ranked
+  }
+
+  return []
+}
+
+function rankTeamsForPrompt(
+  teams: TeamDefinition[],
+  query: string,
+): Array<{ team: TeamDefinition; score: number }> {
+  const queryTerms = query
+    .split(/[^a-z0-9_-]+/i)
+    .map(term => term.trim())
+    .filter(Boolean)
+    .filter(term => !TEAM_QUERY_STOPWORDS.has(term))
+
+  return teams
+    .map(team => ({
+      team,
+      score: scoreTeamForPrompt(team, queryTerms),
+    }))
+    .sort((left, right) => right.score - left.score)
+}
+
+function scoreTeamForPrompt(
+  team: TeamDefinition,
+  queryTerms: string[],
+): number {
+  const haystack = [
+    team.name,
+    team.description ?? '',
+    team.members
+      .map(member => `${member.name} ${member.agentType} ${member.role}`)
+      .join(' '),
+  ]
+    .join(' ')
+    .toLowerCase()
+
+  let score = 0
+  for (const term of queryTerms) {
+    if (!term) continue
+    if (team.name.toLowerCase().includes(term)) {
+      score += 5
+    }
+    if ((team.description ?? '').toLowerCase().includes(term)) {
+      score += 3
+    }
+    if (team.members.some(member => member.name.toLowerCase().includes(term))) {
+      score += 2
+    }
+    if (
+      team.members.some(member => member.agentType.toLowerCase().includes(term))
+    ) {
+      score += 2
+    }
+    if (haystack.includes(term)) {
+      score += 1
+    }
+  }
+
+  return score
+}
+
+const TEAM_QUERY_STOPWORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'to',
+  'for',
+  'and',
+  'or',
+  'of',
+  'in',
+  'on',
+  'with',
+  'ask',
+  'show',
+  'continue',
+  'team',
+  'teams',
+  'member',
+  'members',
+])
 
 /**
  * Reset all team state (for testing).

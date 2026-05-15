@@ -16,6 +16,7 @@ import {
 import { join, basename } from 'path'
 import { createHash } from 'crypto'
 import { homedir } from 'os'
+import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 
 // ============================================================
 // Types
@@ -58,13 +59,25 @@ const DEFAULT_CONFIG: TeamMemorySyncConfig = {
 }
 
 let syncConfig: TeamMemorySyncConfig = { ...DEFAULT_CONFIG }
+let teamMemDirOverride: string | null = null
 
 function getTeamMemDir(): string {
-  const dir = join(homedir(), '.claude-code-mini', 'team-memory')
+  const dir =
+    teamMemDirOverride ?? join(homedir(), '.claude-code-mini', 'team-memory')
   try {
     mkdirSync(dir, { recursive: true })
   } catch {}
   return dir
+}
+
+export function setTeamMemoryDir(dir: string | null): void {
+  teamMemDirOverride = dir
+  if (dir) {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {}
+  }
+  invalidateSystemContextCache()
 }
 
 // ============================================================
@@ -79,6 +92,7 @@ export function setTeamSyncConfig(
   updates: Partial<TeamMemorySyncConfig>,
 ): void {
   syncConfig = { ...syncConfig, ...updates }
+  invalidateSystemContextCache()
 }
 
 // ============================================================
@@ -144,6 +158,7 @@ export function writeTeamMemory(key: string, content: string): void {
   try {
     writeFileSync(filePath, content, 'utf-8')
   } catch {}
+  invalidateSystemContextCache()
 }
 
 /** Remove a team memory file locally */
@@ -154,6 +169,7 @@ export function removeTeamMemory(key: string): void {
       rmSync(filePath)
     } catch {}
   }
+  invalidateSystemContextCache()
 }
 
 // ============================================================
@@ -320,14 +336,107 @@ export async function syncTeamMemory(state: TeamMemorySyncState): Promise<{
  * Get team memory content for injection into the system prompt.
  */
 export function getTeamMemoryForPrompt(): string {
+  return getTeamMemoryForPromptWithOptions()
+}
+
+export function getTeamMemoryForPromptWithOptions(options?: {
+  query?: string
+  limit?: number
+  maxChars?: number
+}): string {
   const entries = scanLocalTeamMemories()
   if (entries.length === 0) return ''
 
+  const selectedEntries = selectTeamMemoriesForPrompt(entries, options)
+  if (selectedEntries.length === 0) return ''
+
   const lines = ['', '## Team Memory', '']
-  for (const entry of entries.slice(0, 10)) {
+  for (const entry of selectedEntries) {
     const preview = entry.content.slice(0, 300).split('\n')[0] ?? ''
     lines.push(`- ${entry.key}: ${preview}`)
   }
   lines.push('')
-  return lines.join('\n')
+  return truncateTeamMemoryPrompt(
+    lines.join('\n'),
+    Math.max(0, options?.maxChars ?? 900),
+  )
+}
+
+function selectTeamMemoriesForPrompt(
+  entries: TeamMemoryEntry[],
+  options?: {
+    query?: string
+    limit?: number
+  },
+): TeamMemoryEntry[] {
+  const limit = Math.max(1, options?.limit ?? 6)
+  const query = options?.query?.trim().toLowerCase() ?? ''
+  if (!query) {
+    return entries.slice(0, limit)
+  }
+
+  const queryTerms = query
+    .split(/[^a-z0-9_./-]+/i)
+    .map(term => term.trim())
+    .filter(Boolean)
+
+  const scored = entries
+    .map((entry, index) => ({
+      entry,
+      index,
+      score: scoreTeamMemoryForPrompt(entry, queryTerms),
+    }))
+    .filter(item => item.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+      return left.index - right.index
+    })
+    .slice(0, limit)
+    .map(item => item.entry)
+
+  if (scored.length > 0) {
+    return scored
+  }
+
+  return entries.slice(0, Math.min(limit, 2))
+}
+
+function scoreTeamMemoryForPrompt(
+  entry: TeamMemoryEntry,
+  queryTerms: string[],
+): number {
+  const preview = entry.content.slice(0, 600).toLowerCase()
+  const haystack = `${entry.key.toLowerCase()} ${preview}`
+  let score = 0
+
+  for (const term of queryTerms) {
+    if (!term) continue
+    if (entry.key.toLowerCase().includes(term)) {
+      score += 4
+    }
+    if (preview.includes(term)) {
+      score += 2
+    }
+    if (haystack.includes(term)) {
+      score += 1
+    }
+  }
+
+  return score
+}
+
+function truncateTeamMemoryPrompt(text: string, maxChars: number): string {
+  if (maxChars <= 0 || text.length <= maxChars) {
+    return text
+  }
+
+  const suffix = '\n\n[Team memory truncated to reduce token usage.]'
+  const budget = maxChars - suffix.length
+  if (budget <= 0) {
+    return '[Team memory truncated to reduce token usage.]'
+  }
+
+  return text.slice(0, budget).trimEnd() + suffix
 }

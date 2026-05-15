@@ -1,10 +1,16 @@
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import {
-  budgetToolResultOutputs,
+  applyToolResultBudget,
   compactMessages,
+  createToolResultBudgetState,
   estimateTokens,
+  getToolResultBudgetReplacementMap,
   microcompactToolResults,
   needsCompaction,
+  reconstructToolResultBudgetState,
+  serializeToolResultBudgetState,
+  type ToolResultBudgetReplacementRecord,
+  type ToolResultBudgetState,
 } from '../compact/autoCompact.js'
 import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
 import { invalidateSystemContextCache } from '../context/contextCacheState.js'
@@ -12,6 +18,7 @@ import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 export interface ConversationBuffers {
   fullMessages: BetaMessageParam[]
   forceCompactNextProjection: boolean
+  toolResultBudgetState: ToolResultBudgetState
 }
 
 export interface APIMessageProjection {
@@ -29,12 +36,52 @@ export interface APIProjectionOptions {
   forceCompact?: boolean
 }
 
+export interface CreateConversationBuffersOptions {
+  forceCompactNextProjection?: boolean
+  inheritedToolResultReplacements?: ReadonlyMap<string, string>
+  restoreToolResultBudgetState?: boolean
+  toolResultBudgetRecords?: ToolResultBudgetReplacementRecord[]
+}
+
+export interface ConversationBuffersSnapshot {
+  forceCompactNextProjection: boolean
+  fullMessages: BetaMessageParam[]
+  toolResultBudgetRecords: ToolResultBudgetReplacementRecord[]
+}
+
 export function createConversationBuffers(
   initialMessages: BetaMessageParam[] = [],
+  options: CreateConversationBuffersOptions = {},
 ): ConversationBuffers {
+  const hasRecords = (options.toolResultBudgetRecords?.length ?? 0) > 0
+  const hasInheritedReplacements =
+    options.inheritedToolResultReplacements !== undefined
+  const shouldRestoreToolResultBudgetState =
+    options.restoreToolResultBudgetState ??
+    (hasRecords || hasInheritedReplacements)
+
   return {
     fullMessages: [...initialMessages],
-    forceCompactNextProjection: false,
+    forceCompactNextProjection: options.forceCompactNextProjection ?? false,
+    toolResultBudgetState: shouldRestoreToolResultBudgetState
+      ? reconstructToolResultBudgetState(
+          initialMessages,
+          options.toolResultBudgetRecords ?? [],
+          options.inheritedToolResultReplacements,
+        )
+      : createToolResultBudgetState(),
+  }
+}
+
+export function serializeConversationBuffers(
+  conversation: ConversationBuffers,
+): ConversationBuffersSnapshot {
+  return {
+    fullMessages: [...conversation.fullMessages],
+    forceCompactNextProjection: conversation.forceCompactNextProjection,
+    toolResultBudgetRecords: serializeToolResultBudgetState(
+      conversation.toolResultBudgetState,
+    ),
   }
 }
 
@@ -43,6 +90,7 @@ export function clearConversationBuffers(
 ): void {
   conversation.fullMessages.length = 0
   conversation.forceCompactNextProjection = false
+  conversation.toolResultBudgetState = createToolResultBudgetState()
   invalidateSystemContextCache()
 }
 
@@ -62,9 +110,17 @@ export function consumeForcedCompaction(
 }
 
 export function projectMessagesForAPI(
-  fullMessages: BetaMessageParam[],
+  source: ConversationBuffers | BetaMessageParam[],
   options: APIProjectionOptions = {},
 ): APIMessageProjection {
+  let conversation: ConversationBuffers | undefined
+  let fullMessages: BetaMessageParam[]
+  if (isConversationBuffers(source)) {
+    conversation = source
+    fullMessages = conversation.fullMessages
+  } else {
+    fullMessages = source
+  }
   const sourceMessages = [...fullMessages]
   let messagesForAPI = sourceMessages
 
@@ -72,9 +128,11 @@ export function projectMessagesForAPI(
   const didMicrocompact = microcompacted !== messagesForAPI
   messagesForAPI = microcompacted
 
-  const budgetedToolResults = budgetToolResultOutputs(messagesForAPI)
-  const didBudgetToolResults = budgetedToolResults !== messagesForAPI
-  messagesForAPI = budgetedToolResults
+  const budgetState =
+    conversation?.toolResultBudgetState ?? createToolResultBudgetState()
+  const budgetResult = applyToolResultBudget(messagesForAPI, budgetState)
+  const didBudgetToolResults = budgetResult.didBudgetToolResults
+  messagesForAPI = budgetResult.messages
 
   const shouldCompact =
     options.forceCompact === true ||
@@ -99,4 +157,16 @@ export function projectMessagesForAPI(
     sourceMessageCount: fullMessages.length,
     projectedMessageCount: messagesForAPI.length,
   }
+}
+
+export function getConversationToolResultReplacements(
+  conversation: ConversationBuffers,
+): ReadonlyMap<string, string> {
+  return getToolResultBudgetReplacementMap(conversation.toolResultBudgetState)
+}
+
+function isConversationBuffers(
+  value: ConversationBuffers | BetaMessageParam[],
+): value is ConversationBuffers {
+  return !Array.isArray(value)
 }

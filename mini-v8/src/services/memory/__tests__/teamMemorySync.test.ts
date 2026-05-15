@@ -1,4 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
 
 import {
   scanLocalTeamMemories,
@@ -7,7 +10,23 @@ import {
   getTeamSyncConfig,
   setTeamSyncConfig,
   getTeamMemoryForPrompt,
+  getTeamMemoryForPromptWithOptions,
+  setTeamMemoryDir,
 } from '../teamMemorySync.js'
+
+let tempDir: string
+
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'mini-v8-team-memory-'))
+  setTeamMemoryDir(tempDir)
+})
+
+afterEach(() => {
+  setTeamMemoryDir(null)
+  try {
+    rmSync(tempDir, { recursive: true, force: true })
+  } catch {}
+})
 
 describe('setTeamSyncConfig', () => {
   test('updates team sync config', () => {
@@ -49,5 +68,37 @@ describe('getTeamMemoryForPrompt', () => {
   test('returns empty string when no team memories', () => {
     const result = getTeamMemoryForPrompt()
     expect(typeof result).toBe('string')
+  })
+
+  test('selects team memories relevant to the current query', () => {
+    writeTeamMemory(
+      'frontend-swarm',
+      'Landing page design decisions for hero layout and typography.',
+    )
+    writeTeamMemory(
+      'infra-squad',
+      'CI build stabilization steps for flaky deployment pipelines.',
+    )
+
+    const result = getTeamMemoryForPromptWithOptions({
+      query: 'frontend design review',
+      limit: 2,
+      maxChars: 500,
+    })
+
+    expect(result).toContain('frontend-swarm')
+    expect(result).toContain('Landing page design decisions')
+    expect(result).not.toContain('infra-squad')
+  })
+
+  test('truncates large team memory prompt output', () => {
+    writeTeamMemory('frontend-swarm', 'x'.repeat(800))
+
+    const result = getTeamMemoryForPromptWithOptions({
+      maxChars: 160,
+    })
+
+    expect(result.length).toBeLessThanOrEqual(160)
+    expect(result).toContain('Team memory truncated')
   })
 })

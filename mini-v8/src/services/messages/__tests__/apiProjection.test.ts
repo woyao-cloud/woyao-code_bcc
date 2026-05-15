@@ -4,8 +4,10 @@ import {
   clearConversationBuffers,
   consumeForcedCompaction,
   createConversationBuffers,
+  getConversationToolResultReplacements,
   projectMessagesForAPI,
   requestForcedCompaction,
+  serializeConversationBuffers,
 } from '../apiProjection.js'
 import {
   MICROCOMPACT_CLEAR_MESSAGE,
@@ -33,6 +35,8 @@ describe('conversation buffers', () => {
 
     expect(conversation.fullMessages.length).toBe(0)
     expect(conversation.forceCompactNextProjection).toBe(false)
+    expect(conversation.toolResultBudgetState.replacements.size).toBe(0)
+    expect(conversation.toolResultBudgetState.seenToolUseIds.size).toBe(0)
   })
 })
 
@@ -137,5 +141,105 @@ describe('projectMessagesForAPI', () => {
     expect(fullSerialized).toContain(hugeOutput.slice(0, 80))
     expect(projectedSerialized).toContain(TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE)
     expect(projectedSerialized).not.toContain(hugeOutput)
+  })
+
+  test('replays stored tool-result replacements across projections', () => {
+    const hugeOutput = 'line '.repeat(1_200)
+    const conversation = createConversationBuffers([
+      { role: 'user', content: 'inspect this large read result' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_big',
+            name: 'Read',
+            input: { file_path: 'src/huge-file.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_big',
+            content: hugeOutput,
+          },
+        ],
+      },
+    ])
+
+    const first = projectMessagesForAPI(conversation)
+    const replacementMap = getConversationToolResultReplacements(conversation)
+    const storedReplacement = replacementMap.get('tu_big')
+    const second = projectMessagesForAPI(conversation)
+
+    expect(first.didBudgetToolResults).toBe(true)
+    expect(storedReplacement).toBeDefined()
+    expect(second.didBudgetToolResults).toBe(true)
+    const secondToolResultMessage = second.messagesForAPI[2]
+    expect(Array.isArray(secondToolResultMessage?.content)).toBe(true)
+    const secondToolResultBlock = Array.isArray(
+      secondToolResultMessage?.content,
+    )
+      ? secondToolResultMessage.content[0]
+      : undefined
+    const secondToolResultContent =
+      typeof secondToolResultBlock === 'object' &&
+      secondToolResultBlock !== null &&
+      'content' in secondToolResultBlock
+        ? secondToolResultBlock.content
+        : undefined
+
+    expect(String(secondToolResultContent)).toContain(
+      TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE,
+    )
+    expect(secondToolResultContent).toBe(storedReplacement)
+  })
+
+  test('restores replacement state from a serialized conversation snapshot', () => {
+    const hugeOutput = 'line '.repeat(1_200)
+    const original = createConversationBuffers([
+      { role: 'user', content: 'inspect this large read result' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_big',
+            name: 'Read',
+            input: { file_path: 'src/huge-file.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_big',
+            content: hugeOutput,
+          },
+        ],
+      },
+    ])
+
+    projectMessagesForAPI(original)
+    const snapshot = serializeConversationBuffers(original)
+    const restored = createConversationBuffers(snapshot.fullMessages, {
+      forceCompactNextProjection: snapshot.forceCompactNextProjection,
+      toolResultBudgetRecords: snapshot.toolResultBudgetRecords,
+    })
+    const restoredProjection = projectMessagesForAPI(restored)
+
+    expect(snapshot.toolResultBudgetRecords.length).toBe(1)
+    expect(restoredProjection.didBudgetToolResults).toBe(true)
+    expect(JSON.stringify(restoredProjection.messagesForAPI)).toContain(
+      TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE,
+    )
+    expect(getConversationToolResultReplacements(restored).get('tu_big')).toBe(
+      snapshot.toolResultBudgetRecords[0]?.replacement,
+    )
   })
 })

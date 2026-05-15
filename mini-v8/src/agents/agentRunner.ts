@@ -63,6 +63,8 @@ export interface AgentRunOptions {
   task: string
   /** Parent messages for context continuity */
   parentMessages?: BetaMessageParam[]
+  /** Parent tool-result replacements for stable replay in forked contexts */
+  parentToolResultReplacements?: ReadonlyMap<string, string>
   /** Max turns override */
   maxTurns?: number
   /** Model override */
@@ -85,6 +87,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
     agent: agentOrType,
     task,
     parentMessages = [],
+    parentToolResultReplacements,
     maxTurns: maxTurnsOverride,
     model: modelOverride,
     onMessage,
@@ -136,7 +139,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
   // Build agent system prompt
   const agentSystemPrompt = agentDef.getSystemPrompt()
 
-  const conversation = createConversationBuffers(parentMessages)
+  const conversation = createConversationBuffers(parentMessages, {
+    inheritedToolResultReplacements: parentToolResultReplacements,
+  })
   const fullMessages = conversation.fullMessages
   fullMessages.push({
     role: 'user',
@@ -154,7 +159,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
     while (turnCount < maxTurns) {
       turnCount++
 
-      const { messagesForAPI } = projectMessagesForAPI(fullMessages, {
+      const { messagesForAPI } = projectMessagesForAPI(conversation, {
         model,
       })
 
