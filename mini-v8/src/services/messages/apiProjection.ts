@@ -1,11 +1,13 @@
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import {
+  budgetToolResultOutputs,
   compactMessages,
   estimateTokens,
   microcompactToolResults,
   needsCompaction,
 } from '../compact/autoCompact.js'
 import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
+import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 
 export interface ConversationBuffers {
   fullMessages: BetaMessageParam[]
@@ -15,6 +17,7 @@ export interface ConversationBuffers {
 export interface APIMessageProjection {
   messagesForAPI: BetaMessageParam[]
   didMicrocompact: boolean
+  didBudgetToolResults: boolean
   didCompact: boolean
   estimatedTokens: number
   sourceMessageCount: number
@@ -40,12 +43,14 @@ export function clearConversationBuffers(
 ): void {
   conversation.fullMessages.length = 0
   conversation.forceCompactNextProjection = false
+  invalidateSystemContextCache()
 }
 
 export function requestForcedCompaction(
   conversation: ConversationBuffers,
 ): void {
   conversation.forceCompactNextProjection = true
+  invalidateSystemContextCache()
 }
 
 export function consumeForcedCompaction(
@@ -67,6 +72,10 @@ export function projectMessagesForAPI(
   const didMicrocompact = microcompacted !== messagesForAPI
   messagesForAPI = microcompacted
 
+  const budgetedToolResults = budgetToolResultOutputs(messagesForAPI)
+  const didBudgetToolResults = budgetedToolResults !== messagesForAPI
+  messagesForAPI = budgetedToolResults
+
   const shouldCompact =
     options.forceCompact === true ||
     needsCompaction(messagesForAPI, options.model)
@@ -84,6 +93,7 @@ export function projectMessagesForAPI(
   return {
     messagesForAPI,
     didMicrocompact,
+    didBudgetToolResults,
     didCompact,
     estimatedTokens: estimateTokens(messagesForAPI),
     sourceMessageCount: fullMessages.length,

@@ -9,6 +9,7 @@ import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 
 export interface SessionMemoryNote {
   id: string
@@ -60,6 +61,7 @@ export function setSessionMemoryDir(dir: string): void {
   try {
     mkdirSync(sessionMemDir, { recursive: true })
   } catch {}
+  invalidateSystemContextCache()
 }
 
 function getSessionMemoryDir(): string {
@@ -75,6 +77,7 @@ export function initSession(): void {
     'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   lastExtractionTokenCount = 0
   extractedNotes = []
+  invalidateSystemContextCache()
 }
 
 export function getSessionId(): string | null {
@@ -85,6 +88,7 @@ export function endSession(): void {
   sessionId = null
   lastExtractionTokenCount = 0
   extractedNotes = []
+  invalidateSystemContextCache()
 }
 
 export function getSessionMemoryConfig(): SessionMemoryConfig {
@@ -95,6 +99,7 @@ export function setSessionMemoryConfig(
   updates: Partial<SessionMemoryConfig>,
 ): void {
   config = { ...config, ...updates }
+  invalidateSystemContextCache()
 }
 
 export function estimateTotalTokens(messages: BetaMessageParam[]): number {
@@ -208,6 +213,7 @@ export function persistSessionMemoryWithTokenCount(
   try {
     writeFileSync(path, lines.join('\n'), 'utf-8')
   } catch {}
+  invalidateSystemContextCache()
 }
 
 export function readSessionMemory(id: string): SessionMemoryNote[] {

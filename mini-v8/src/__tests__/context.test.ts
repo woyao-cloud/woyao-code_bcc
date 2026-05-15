@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { getSystemContext } from '../context.js'
@@ -11,19 +11,33 @@ import {
   setSessionMemoryDir,
   SESSION_MEMORY_COMPACTION_MARKER,
 } from '../services/memory/sessionMemory.js'
+import { getCwd, setCwd } from '../bootstrap/state.js'
+import {
+  clearConversationBuffers,
+  createConversationBuffers,
+  requestForcedCompaction,
+} from '../services/messages/apiProjection.js'
 
 let tempDir: string
+const originalCwd = getCwd()
 
 describe('getSystemContext', () => {
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'mini-v8-context-'))
+    writeFileSync(
+      join(tempDir, 'CLAUDE.md'),
+      '# Temp instructions\nalpha',
+      'utf-8',
+    )
     setSessionMemoryDir(tempDir)
     setMemoryDir(tempDir)
+    setCwd(tempDir)
     initSession()
   })
 
   afterEach(() => {
     endSession()
+    setCwd(originalCwd)
     try {
       rmSync(tempDir, { recursive: true, force: true })
     } catch {}
@@ -56,6 +70,23 @@ describe('getSystemContext', () => {
   })
 
   test('injects session memory into a fresh conversation slice', async () => {
+    const before = await getSystemContext(undefined, {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeClaudeMd: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeams: false,
+      sessionMemoryMode: 'auto',
+      conversationMessages: [
+        { role: 'user', content: 'Continue after clearing the REPL' },
+      ],
+    })
+
+    expect(before).toBe('')
+
     persistSessionMemory([
       {
         id: 'note-1',
@@ -158,5 +189,65 @@ describe('getSystemContext', () => {
     expect(ctx).toContain('Current date:')
     expect(ctx).toContain('Working directory:')
     expect(ctx).not.toContain('User Memories')
+  })
+
+  test('clear invalidates cached CLAUDE.md context blocks', async () => {
+    const config = {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeams: false,
+      maxContextTokens: 400,
+    }
+    const conversation = createConversationBuffers([
+      { role: 'user', content: 'show repo instructions' },
+    ])
+
+    const before = await getSystemContext(undefined, config)
+    expect(before).toContain('alpha')
+
+    writeFileSync(
+      join(tempDir, 'CLAUDE.md'),
+      '# Temp instructions\nbeta',
+      'utf-8',
+    )
+    clearConversationBuffers(conversation)
+
+    const after = await getSystemContext(undefined, config)
+    expect(after).toContain('beta')
+    expect(after).not.toContain('alpha')
+  })
+
+  test('forced compaction invalidates cached CLAUDE.md context blocks', async () => {
+    const config = {
+      includeDate: false,
+      includeWorkingDirectory: false,
+      includeGit: false,
+      includeSkills: false,
+      includeMemories: false,
+      includeAgents: false,
+      includeTeams: false,
+      maxContextTokens: 400,
+    }
+    const conversation = createConversationBuffers([
+      { role: 'user', content: 'prepare a compacted turn' },
+    ])
+
+    const before = await getSystemContext(undefined, config)
+    expect(before).toContain('alpha')
+
+    writeFileSync(
+      join(tempDir, 'CLAUDE.md'),
+      '# Temp instructions\ngamma',
+      'utf-8',
+    )
+    requestForcedCompaction(conversation)
+
+    const after = await getSystemContext(undefined, config)
+    expect(after).toContain('gamma')
+    expect(after).not.toContain('alpha')
   })
 })

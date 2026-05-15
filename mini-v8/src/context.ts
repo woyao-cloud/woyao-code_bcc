@@ -11,11 +11,13 @@ import { formatMemoriesForPromptWithOptions } from './services/memory/memoryStor
 import {
   getSessionId,
   getSessionMemoryForPrompt,
+  hasSessionMemoryCompactionSummary,
   shouldInjectSessionMemoryIntoPrompt,
   type SessionMemoryPromptMode,
 } from './services/memory/sessionMemory.js'
 import { getAgentsForPromptWithOptions } from './agents/agentRegistry.js'
 import { getTeamsForPrompt } from './agents/teamManager.js'
+import { getSystemContextCacheRevision } from './services/context/contextCacheState.js'
 
 // ============================================================================
 // Context Types
@@ -106,12 +108,20 @@ interface ContextBlock {
   optional?: boolean
 }
 
-const CONTEXT_CACHE_TTL_MS = 5_000
+interface CachedEnhancedContextEntry {
+  expiresAt: number
+  value: EnhancedContext
+}
+
+const CONTEXT_CACHE_TTL_MS = 15_000
+const MAX_ENHANCED_CONTEXT_CACHE_ENTRIES = 24
 
 let cachedClaudeMdKey = ''
 let cachedClaudeMdBlocks: string[] = []
 let cachedSkillsKey = ''
 let cachedSkillsText = ''
+let cachedEnhancedContexts = new Map<string, CachedEnhancedContextEntry>()
+let localContextCacheRevision = -1
 
 // ============================================================================
 // System Context
@@ -138,7 +148,23 @@ export async function getEnhancedContext(
   config: Partial<ContextConfig> = {},
 ): Promise<EnhancedContext> {
   const mergedConfig = { ...DEFAULT_CONTEXT_CONFIG, ...config }
+  const contextRevision = syncContextCacheRevision()
   const cwd = getCwd()
+  const conversationSignature = buildConversationSignature(
+    mergedConfig.conversationMessages,
+  )
+  const cacheKey = buildEnhancedContextCacheKey({
+    cwd,
+    skillContextOverride,
+    config: mergedConfig,
+    conversationSignature,
+    revision: contextRevision,
+    sessionId: getSessionId(),
+  })
+  const cached = getCachedEnhancedContext(cacheKey)
+  if (cached) {
+    return cached
+  }
   const parts: ContextParts = {}
   const blocks: ContextBlock[] = []
   let gitStatus: GitStatus | undefined
@@ -339,12 +365,15 @@ export async function getEnhancedContext(
   )
   const fullContext = selectedBlocks.map(block => block.text).join('\n\n')
 
-  return {
+  const result: EnhancedContext = {
     fullContext,
     parts,
     gitStatus,
     timestamp: new Date(),
   }
+
+  setCachedEnhancedContext(cacheKey, result)
+  return cloneEnhancedContext(result)
 }
 
 // ============================================================================
@@ -490,7 +519,9 @@ function shouldIncludePromptSection(
 }
 
 function getClaudeMdBlocks(cwd: string, config: ContextConfig): string[] {
+  const contextRevision = syncContextCacheRevision()
   const cacheKey = [
+    contextRevision,
     cwd,
     config.maxClaudeMdFiles ?? DEFAULT_CONTEXT_CONFIG.maxClaudeMdFiles,
     config.maxClaudeMdContentLength ??
@@ -522,7 +553,9 @@ function getSkillsPrompt(
   skills: Skill[],
   config: ContextConfig,
 ): string {
+  const contextRevision = syncContextCacheRevision()
   const cacheKey = [
+    contextRevision,
     cwd,
     skills.length,
     config.maxSkillsInPrompt ?? DEFAULT_CONTEXT_CONFIG.maxSkillsInPrompt,
@@ -566,6 +599,149 @@ function selectContextBlocksForBudget(
   }
 
   return selected
+}
+
+function syncContextCacheRevision(): number {
+  const revision = getSystemContextCacheRevision()
+  if (revision === localContextCacheRevision) {
+    return revision
+  }
+
+  cachedEnhancedContexts.clear()
+  cachedClaudeMdKey = ''
+  cachedClaudeMdBlocks = []
+  cachedSkillsKey = ''
+  cachedSkillsText = ''
+  localContextCacheRevision = revision
+  return revision
+}
+
+function buildConversationSignature(
+  messages: BetaMessageParam[] | undefined,
+): string {
+  if (!messages || messages.length === 0) {
+    return ''
+  }
+
+  const tail = messages.slice(-3).map(message => ({
+    role: message.role,
+    text: getMessagePromptText(message).slice(0, 160),
+  }))
+
+  return JSON.stringify({
+    count: messages.length,
+    query: extractConversationQuery(messages),
+    tail,
+    hasSessionMemorySummary: hasSessionMemoryCompactionSummary(messages),
+  })
+}
+
+function buildEnhancedContextCacheKey(input: {
+  cwd: string
+  skillContextOverride?: string
+  config: ContextConfig
+  conversationSignature: string
+  revision: number
+  sessionId: string | null
+}): string {
+  return JSON.stringify({
+    revision: input.revision,
+    cwd: input.cwd,
+    sessionId: input.sessionId,
+    skillContextOverride: input.skillContextOverride ?? null,
+    conversationSignature: input.conversationSignature,
+    config: serializeContextConfig(input.config),
+  })
+}
+
+function serializeContextConfig(
+  config: ContextConfig,
+): Record<string, unknown> {
+  return {
+    includeDate: config.includeDate,
+    includeWorkingDirectory: config.includeWorkingDirectory,
+    includeGit: config.includeGit,
+    includeClaudeMd: config.includeClaudeMd,
+    includeSkills: config.includeSkills,
+    includeMemories: config.includeMemories,
+    includeAgents: config.includeAgents,
+    includeTeams: config.includeTeams,
+    includeEnvironment: config.includeEnvironment,
+    includeTeamMemory: config.includeTeamMemory,
+    sessionMemoryMode: config.sessionMemoryMode,
+    sessionMemoryPromptMaxChars: config.sessionMemoryPromptMaxChars,
+    sessionMemoryPromptMaxNotesPerCategory:
+      config.sessionMemoryPromptMaxNotesPerCategory,
+    maxContextTokens: config.maxContextTokens,
+    maxMemoriesInPrompt: config.maxMemoriesInPrompt,
+    maxMemoryPromptChars: config.maxMemoryPromptChars,
+    maxSkillsInPrompt: config.maxSkillsInPrompt,
+    maxAgentsInPrompt: config.maxAgentsInPrompt,
+    maxTeamsInPrompt: config.maxTeamsInPrompt,
+    includeSkillsOnlyWhenRelevant: config.includeSkillsOnlyWhenRelevant,
+    includeAgentsOnlyWhenRelevant: config.includeAgentsOnlyWhenRelevant,
+    includeTeamsOnlyWhenRelevant: config.includeTeamsOnlyWhenRelevant,
+    includeMemoriesOnlyWhenRelevant: config.includeMemoriesOnlyWhenRelevant,
+    maxClaudeMdFiles: config.maxClaudeMdFiles,
+    maxClaudeMdContentLength: config.maxClaudeMdContentLength,
+  }
+}
+
+function getCachedEnhancedContext(
+  cacheKey: string,
+): EnhancedContext | undefined {
+  const now = Date.now()
+  const cached = cachedEnhancedContexts.get(cacheKey)
+  if (!cached) {
+    return undefined
+  }
+
+  if (cached.expiresAt <= now) {
+    cachedEnhancedContexts.delete(cacheKey)
+    return undefined
+  }
+
+  return cloneEnhancedContext(cached.value)
+}
+
+function setCachedEnhancedContext(
+  cacheKey: string,
+  value: EnhancedContext,
+): void {
+  purgeExpiredEnhancedContextEntries()
+  cachedEnhancedContexts.set(cacheKey, {
+    expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS,
+    value: cloneEnhancedContext(value),
+  })
+
+  while (cachedEnhancedContexts.size > MAX_ENHANCED_CONTEXT_CACHE_ENTRIES) {
+    const oldestKey = cachedEnhancedContexts.keys().next().value
+    if (typeof oldestKey !== 'string') {
+      break
+    }
+    cachedEnhancedContexts.delete(oldestKey)
+  }
+}
+
+function purgeExpiredEnhancedContextEntries(): void {
+  const now = Date.now()
+  for (const [cacheKey, entry] of cachedEnhancedContexts.entries()) {
+    if (entry.expiresAt <= now) {
+      cachedEnhancedContexts.delete(cacheKey)
+    }
+  }
+}
+
+function cloneEnhancedContext(value: EnhancedContext): EnhancedContext {
+  return {
+    fullContext: value.fullContext,
+    parts: {
+      ...value.parts,
+      claudeMd: value.parts.claudeMd ? [...value.parts.claudeMd] : undefined,
+    },
+    gitStatus: value.gitStatus ? { ...value.gitStatus } : undefined,
+    timestamp: new Date(value.timestamp.getTime()),
+  }
 }
 
 // ============================================================================

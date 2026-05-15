@@ -14,6 +14,7 @@ import { homedir } from 'os'
 import type { AgentDefinition, AgentSource } from './agentTypes.js'
 import { getBuiltInAgents } from './builtInAgents.js'
 import type { LoadedPlugin } from '../plugins/types.js'
+import { invalidateSystemContextCache } from '../services/context/contextCacheState.js'
 
 // ---------- Registry State ----------
 
@@ -80,13 +81,18 @@ export function registerAgent(agent: AgentDefinition): void {
     if (newPriority <= existingPriority) return
   }
   agentRegistry.set(agent.agentType, agent)
+  invalidateSystemContextCache()
 }
 
 /**
  * Unregister an agent by agentType.
  */
 export function unregisterAgent(agentType: string): boolean {
-  return agentRegistry.delete(agentType)
+  const deleted = agentRegistry.delete(agentType)
+  if (deleted) {
+    invalidateSystemContextCache()
+  }
+  return deleted
 }
 
 // ---------- Lookup ----------

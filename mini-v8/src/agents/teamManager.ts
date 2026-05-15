@@ -21,6 +21,7 @@ import { homedir } from 'os'
 import type { TeamDefinition, TeamMember, AgentRole } from './agentTypes.js'
 import { logDebug } from '../utils/log.js'
 import { getCwd } from '../bootstrap/state.js'
+import { invalidateSystemContextCache } from '../services/context/contextCacheState.js'
 
 // ---------- Team State ----------
 
@@ -36,6 +37,7 @@ let teamsBaseDir: string | null = null
  */
 export function setTeamsBaseDir(path: string | null): void {
   teamsBaseDir = path
+  invalidateSystemContextCache()
 }
 
 /** Team files directory */
@@ -132,6 +134,7 @@ export function createTeam(
   // Persist
   activeTeams.set(finalName, team)
   writeTeamFile(team)
+  invalidateSystemContextCache()
 
   logDebug(`Team "${finalName}" created with lead agent ${leadId}`)
 
@@ -170,6 +173,7 @@ export function deleteTeam(teamName: string): {
   // Cleanup
   activeTeams.delete(teamName)
   deleteTeamFile(teamName)
+  invalidateSystemContextCache()
 
   logDebug(`Team "${teamName}" deleted`)
 
@@ -206,6 +210,7 @@ export function addTeamMember(
   team.members.push(member)
   activeTeams.set(teamName, team)
   writeTeamFile(team)
+  invalidateSystemContextCache()
 
   logDebug(`Member "${memberName}" added to team "${teamName}"`)
 
@@ -226,6 +231,7 @@ export function removeTeamMember(teamName: string, memberId: string): boolean {
   team.members.splice(index, 1)
   activeTeams.set(teamName, team)
   writeTeamFile(team)
+  invalidateSystemContextCache()
 
   return true
 }
@@ -248,6 +254,7 @@ export function updateMemberStatus(
   member.isActive = isActive
   activeTeams.set(teamName, team)
   writeTeamFile(team)
+  invalidateSystemContextCache()
 
   return true
 }
@@ -307,4 +314,5 @@ export function getTeamsForPrompt(): string {
  */
 export function resetTeamManager(): void {
   activeTeams.clear()
+  invalidateSystemContextCache()
 }

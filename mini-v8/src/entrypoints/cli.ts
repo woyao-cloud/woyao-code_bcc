@@ -243,16 +243,18 @@ async function runREPL(_config: unknown) {
 
     if (line === '/compact') {
       const activeModel = resolveModel()
-      const { didMicrocompact, didCompact } = projectMessagesForAPI(
-        conversation.fullMessages,
-        {
+      const { didMicrocompact, didBudgetToolResults, didCompact } =
+        projectMessagesForAPI(conversation.fullMessages, {
           model: activeModel,
           forceCompact: true,
-        },
-      )
+        })
       if (didCompact) {
         requestForcedCompaction(conversation)
         process.stderr.write('Next API turn will use a compacted projection.\n')
+      } else if (didBudgetToolResults) {
+        process.stderr.write(
+          'Next API turn will use budgeted tool result previews.\n',
+        )
       } else if (didMicrocompact) {
         process.stderr.write(
           'Next API turn will use microcompacted tool results.\n',

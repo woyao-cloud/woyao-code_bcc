@@ -1,11 +1,13 @@
 import { describe, test, expect } from 'bun:test'
 import {
+  budgetToolResultOutputs,
   estimateTokens,
   needsCompaction,
   compactMessages,
   generateCompactionSummary,
   microcompactToolResults,
   MICROCOMPACT_CLEAR_MESSAGE,
+  TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE,
 } from '../services/compact/autoCompact.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 
@@ -318,5 +320,74 @@ describe('microcompactToolResults', () => {
       keepRecent: 0,
     })
     expect(JSON.stringify(result)).toContain('error payload')
+  })
+})
+
+describe('budgetToolResultOutputs', () => {
+  test('replaces oversized compactable tool results with deterministic previews', () => {
+    const hugeOutput = 'abcdef '.repeat(900)
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'start' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_1',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'tu_1', content: hugeOutput },
+        ],
+      },
+    ]
+
+    const result = budgetToolResultOutputs(msgs, {
+      maxTokensPerResult: 200,
+      maxPreviewChars: 120,
+    })
+    const json = JSON.stringify(result)
+    expect(json).toContain(TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE)
+    expect(json).not.toContain(hugeOutput)
+    expect(JSON.stringify(msgs)).toContain(hugeOutput)
+  })
+
+  test('keeps error tool results untouched', () => {
+    const hugeOutput = 'error '.repeat(800)
+    const msgs: BetaMessageParam[] = [
+      { role: 'user', content: 'start' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_1',
+            name: 'Read',
+            input: { file_path: 'a.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_1',
+            content: hugeOutput,
+            is_error: true,
+          },
+        ],
+      },
+    ]
+
+    const result = budgetToolResultOutputs(msgs, {
+      maxTokensPerResult: 100,
+    })
+    expect(JSON.stringify(result)).toContain(hugeOutput)
   })
 })

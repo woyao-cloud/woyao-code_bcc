@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 
 export interface Memory {
   id: string
@@ -40,6 +41,7 @@ export function setMemoryDir(dir: string): void {
   memoryDir = dir
   memoryFile = join(dir, 'memories-v2.json')
   ensureDir()
+  invalidateSystemContextCache()
 }
 
 // ============================================================
@@ -95,6 +97,7 @@ export function addMemory(
     }
     store.memories.push(memory)
     saveStore(store)
+    invalidateSystemContextCache()
     return memory
   } catch {
     return undefined
@@ -157,6 +160,7 @@ export function updateMemory(
     }
     store.memories[index] = updated
     saveStore(store)
+    invalidateSystemContextCache()
     return updated
   } catch {
     return undefined
@@ -170,6 +174,7 @@ export function deleteMemory(id: string): boolean {
     if (index === -1) return false
     store.memories.splice(index, 1)
     saveStore(store)
+    invalidateSystemContextCache()
     return true
   } catch {
     return false
@@ -254,6 +259,9 @@ export function importMemories(data: string): number {
       }
     }
     saveStore(store)
+    if (count > 0) {
+      invalidateSystemContextCache()
+    }
     return count
   } catch {
     return 0

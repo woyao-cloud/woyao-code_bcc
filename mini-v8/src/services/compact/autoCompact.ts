@@ -11,6 +11,9 @@ const TOKEN_LIMIT_RATIO = 0.7
 const ESTIMATED_MAX_TOKENS = 100_000
 const MICROCOMPACT_TRIGGER_TOOL_RESULTS = 6
 const MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS = 3
+const TOOL_RESULT_MAX_TOKENS_PER_MESSAGE = 1_200
+const TOOL_RESULT_MAX_TOKENS_PER_RESULT = 800
+const TOOL_RESULT_PREVIEW_MAX_CHARS = 320
 
 const COMPACTABLE_TOOL_NAMES = new Set([
   'Bash',
@@ -25,8 +28,18 @@ const COMPACTABLE_TOOL_NAMES = new Set([
 
 export const MICROCOMPACT_CLEAR_MESSAGE =
   '[Earlier tool result compacted to reduce token usage.]'
+export const TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE =
+  '[Large tool result compacted to reduce token usage.]'
+const TOOL_RESULT_BUDGET_PREVIEW_PREFIX = '[Compacted '
 
 type ContentBlock = Record<string, unknown>
+interface ToolResultBudgetCandidate {
+  blockIndex: number
+  toolUseId: string
+  tokens: number
+  preview: string
+  previewTokens: number
+}
 
 function estimateTextTokens(text: string): number {
   return Math.ceil(text.length / 4)
@@ -358,4 +371,182 @@ export function microcompactToolResults(
   })
 
   return changed ? nextMessages : messages
+}
+
+export function budgetToolResultOutputs(
+  messages: BetaMessageParam[],
+  options?: {
+    maxTokensPerMessage?: number
+    maxTokensPerResult?: number
+    maxPreviewChars?: number
+  },
+): BetaMessageParam[] {
+  const maxTokensPerMessage = Math.max(
+    1,
+    options?.maxTokensPerMessage ?? TOOL_RESULT_MAX_TOKENS_PER_MESSAGE,
+  )
+  const maxTokensPerResult = Math.max(
+    1,
+    options?.maxTokensPerResult ?? TOOL_RESULT_MAX_TOKENS_PER_RESULT,
+  )
+  const maxPreviewChars = Math.max(
+    80,
+    options?.maxPreviewChars ?? TOOL_RESULT_PREVIEW_MAX_CHARS,
+  )
+  const toolNames = getToolUseNameMap(messages)
+  let changed = false
+
+  const nextMessages = messages.map(message => {
+    if (message.role !== 'user' || !Array.isArray(message.content)) {
+      return message
+    }
+
+    const candidates: ToolResultBudgetCandidate[] = []
+    let totalTokens = 0
+
+    for (const [index, block] of message.content.entries()) {
+      if (!isToolResultBlock(block) || block.is_error === true) {
+        continue
+      }
+
+      const toolName = toolNames.get(block.tool_use_id)
+      if (!toolName || !COMPACTABLE_TOOL_NAMES.has(toolName)) {
+        continue
+      }
+
+      const rawContent = stringifyToolResultContent(block.content)
+      if (
+        !rawContent ||
+        rawContent === MICROCOMPACT_CLEAR_MESSAGE ||
+        isBudgetedToolResultContent(rawContent)
+      ) {
+        continue
+      }
+
+      const tokens = estimateTextTokens(rawContent)
+      totalTokens += tokens
+
+      const preview = buildToolResultPreview(
+        toolName,
+        rawContent,
+        maxPreviewChars,
+      )
+      candidates.push({
+        blockIndex: index,
+        toolUseId: block.tool_use_id,
+        tokens,
+        preview,
+        previewTokens: estimateTextTokens(preview),
+      })
+    }
+
+    if (candidates.length === 0) {
+      return message
+    }
+
+    const replacements = new Map<number, string>()
+    let remainingTokens = totalTokens
+
+    for (const candidate of candidates) {
+      if (candidate.tokens <= maxTokensPerResult) {
+        continue
+      }
+
+      replacements.set(candidate.blockIndex, candidate.preview)
+      remainingTokens =
+        remainingTokens - candidate.tokens + candidate.previewTokens
+    }
+
+    if (remainingTokens > maxTokensPerMessage) {
+      const remainingCandidates = candidates
+        .filter(candidate => !replacements.has(candidate.blockIndex))
+        .sort((left, right) => right.tokens - left.tokens)
+
+      for (const candidate of remainingCandidates) {
+        if (remainingTokens <= maxTokensPerMessage) {
+          break
+        }
+
+        replacements.set(candidate.blockIndex, candidate.preview)
+        remainingTokens =
+          remainingTokens - candidate.tokens + candidate.previewTokens
+      }
+    }
+
+    if (replacements.size === 0) {
+      return message
+    }
+
+    changed = true
+    return {
+      ...message,
+      content: message.content.map((block, index) => {
+        if (!isToolResultBlock(block)) {
+          return block
+        }
+
+        const preview = replacements.get(index)
+        if (!preview) {
+          return block
+        }
+
+        return {
+          ...block,
+          content: preview,
+        }
+      }),
+    }
+  })
+
+  return changed ? nextMessages : messages
+}
+
+function stringifyToolResultContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (content === null || content === undefined) {
+    return ''
+  }
+
+  if (typeof content === 'object') {
+    try {
+      return JSON.stringify(content)
+    } catch {
+      return String(content)
+    }
+  }
+
+  return String(content)
+}
+
+function isBudgetedToolResultContent(content: string): boolean {
+  return content.startsWith(TOOL_RESULT_BUDGET_PREVIEW_PREFIX)
+}
+
+function buildToolResultPreview(
+  toolName: string,
+  content: string,
+  maxPreviewChars: number,
+): string {
+  const normalized = content.trim() || content
+  const previewText = normalized.slice(0, maxPreviewChars).trimEnd()
+  const shownChars = previewText.length
+  const header =
+    TOOL_RESULT_BUDGET_PREVIEW_PREFIX +
+    toolName +
+    ' result: showing first ' +
+    shownChars +
+    ' chars of ' +
+    normalized.length +
+    ']'
+
+  if (shownChars >= normalized.length) {
+    return header + '\n' + previewText
+  }
+
+  return (
+    header + '\n' + previewText + '\n' + TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE
+  )
 }

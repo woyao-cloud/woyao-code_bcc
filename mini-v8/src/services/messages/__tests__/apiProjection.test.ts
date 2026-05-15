@@ -7,7 +7,10 @@ import {
   projectMessagesForAPI,
   requestForcedCompaction,
 } from '../apiProjection.js'
-import { MICROCOMPACT_CLEAR_MESSAGE } from '../../compact/autoCompact.js'
+import {
+  MICROCOMPACT_CLEAR_MESSAGE,
+  TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE,
+} from '../../compact/autoCompact.js'
 
 describe('conversation buffers', () => {
   test('tracks a one-shot forced compaction flag', () => {
@@ -97,5 +100,42 @@ describe('projectMessagesForAPI', () => {
     expect(fullSerialized).toContain('full tool content 0')
     expect(projectedSerialized).toContain(MICROCOMPACT_CLEAR_MESSAGE)
     expect(projectedSerialized).not.toContain('full tool content 0')
+  })
+
+  test('budgets oversized tool results only in the API projection', () => {
+    const hugeOutput = 'line '.repeat(1_200)
+    const fullMessages: BetaMessageParam[] = [
+      { role: 'user', content: 'inspect this large read result' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'tu_big',
+            name: 'Read',
+            input: { file_path: 'src/huge-file.ts' },
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'tu_big',
+            content: hugeOutput,
+          },
+        ],
+      },
+    ]
+
+    const projection = projectMessagesForAPI(fullMessages)
+    const fullSerialized = JSON.stringify(fullMessages)
+    const projectedSerialized = JSON.stringify(projection.messagesForAPI)
+
+    expect(projection.didBudgetToolResults).toBe(true)
+    expect(fullSerialized).toContain(hugeOutput.slice(0, 80))
+    expect(projectedSerialized).toContain(TOOL_RESULT_BUDGET_TRUNCATED_MESSAGE)
+    expect(projectedSerialized).not.toContain(hugeOutput)
   })
 })
