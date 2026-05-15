@@ -161,6 +161,7 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentResult> {
 
       const { messagesForAPI } = projectMessagesForAPI(conversation, {
         model,
+        commitCompactionToConversation: true,
       })
 
       const toolUses: Array<{

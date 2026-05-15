@@ -228,6 +228,7 @@ describe('projectMessagesForAPI', () => {
     projectMessagesForAPI(original)
     const snapshot = serializeConversationBuffers(original)
     const restored = createConversationBuffers(snapshot.fullMessages, {
+      compactBoundaries: snapshot.compactBoundaries,
       forceCompactNextProjection: snapshot.forceCompactNextProjection,
       toolResultBudgetRecords: snapshot.toolResultBudgetRecords,
     })
@@ -241,5 +242,64 @@ describe('projectMessagesForAPI', () => {
     expect(getConversationToolResultReplacements(restored).get('tu_big')).toBe(
       snapshot.toolResultBudgetRecords[0]?.replacement,
     )
+  })
+
+  test('commits a compact boundary into fullMessages and projects only the active slice', () => {
+    const conversation = createConversationBuffers([
+      { role: 'user', content: 'first request' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'middle request 1' },
+      { role: 'assistant', content: 'middle answer 1' },
+      { role: 'user', content: 'middle request 2' },
+      { role: 'assistant', content: 'middle answer 2' },
+      { role: 'user', content: 'latest request' },
+      { role: 'assistant', content: 'latest answer' },
+    ])
+
+    const compacted = projectMessagesForAPI(conversation, {
+      forceCompact: true,
+      commitCompactionToConversation: true,
+    })
+
+    expect(compacted.didCompact).toBe(true)
+    expect(conversation.compactBoundaries.length).toBe(1)
+    expect(
+      conversation.compactBoundaries[0]?.projectedMessageCount,
+    ).toBeGreaterThan(0)
+
+    const replay = projectMessagesForAPI(conversation)
+    expect(JSON.stringify(replay.messagesForAPI)).not.toContain('first request')
+    expect(JSON.stringify(replay.messagesForAPI)).toContain('latest request')
+  })
+
+  test('restores from a compact-boundary snapshot using only the post-boundary slice', () => {
+    const original = createConversationBuffers([
+      { role: 'user', content: 'first request' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'middle request 1' },
+      { role: 'assistant', content: 'middle answer 1' },
+      { role: 'user', content: 'middle request 2' },
+      { role: 'assistant', content: 'middle answer 2' },
+      { role: 'user', content: 'latest request' },
+      { role: 'assistant', content: 'latest answer' },
+    ])
+
+    projectMessagesForAPI(original, {
+      forceCompact: true,
+      commitCompactionToConversation: true,
+    })
+
+    const snapshot = serializeConversationBuffers(original)
+    const restored = createConversationBuffers(snapshot.fullMessages, {
+      compactBoundaries: snapshot.compactBoundaries,
+      forceCompactNextProjection: snapshot.forceCompactNextProjection,
+      toolResultBudgetRecords: snapshot.toolResultBudgetRecords,
+      restoreToolResultBudgetState: true,
+    })
+    const replay = projectMessagesForAPI(restored)
+
+    expect(restored.compactBoundaries.length).toBe(1)
+    expect(JSON.stringify(replay.messagesForAPI)).not.toContain('first request')
+    expect(JSON.stringify(replay.messagesForAPI)).toContain('latest request')
   })
 })

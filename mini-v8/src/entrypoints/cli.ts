@@ -247,6 +247,7 @@ async function runREPL(_config: unknown) {
         projectMessagesForAPI(conversation, {
           model: activeModel,
           forceCompact: true,
+          commitCompactionToConversation: true,
         })
       if (didCompact) {
         requestForcedCompaction(conversation)
@@ -396,6 +397,7 @@ async function runConversationTurn(
     const { messagesForAPI } = projectMessagesForAPI(conversation, {
       model: activeModel,
       forceCompact,
+      commitCompactionToConversation: forceCompact,
     })
 
     const systemContext = await getSystemContext(undefined, {
