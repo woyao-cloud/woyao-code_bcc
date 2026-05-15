@@ -22,6 +22,13 @@ import type { TeamDefinition, TeamMember, AgentRole } from './agentTypes.js'
 import { logDebug } from '../utils/log.js'
 import { getCwd } from '../bootstrap/state.js'
 import { invalidateSystemContextCache } from '../services/context/contextCacheState.js'
+import {
+  initializeTeamMailboxes,
+  cleanupTeamMailboxes,
+  removeInboxFile,
+  writeToMailbox,
+  setMailboxBaseDir,
+} from './teammateMailbox.js'
 
 // ---------- Team State ----------
 
@@ -37,6 +44,7 @@ let teamsBaseDir: string | null = null
  */
 export function setTeamsBaseDir(path: string | null): void {
   teamsBaseDir = path
+  setMailboxBaseDir(path ? join(path, 'teams') : null)
   invalidateSystemContextCache()
 }
 
@@ -136,6 +144,19 @@ export function createTeam(
   writeTeamFile(team)
   invalidateSystemContextCache()
 
+  // Initialize mailboxes for team communication
+  initializeTeamMailboxes(finalName, ['team-lead'])
+  writeToMailbox(
+    'team-lead',
+    {
+      from: 'system',
+      text: JSON.stringify({ type: 'team_created', team: finalName }),
+      timestamp: new Date().toISOString(),
+      summary: `Team "${finalName}" created`,
+    },
+    finalName,
+  )
+
   logDebug(`Team "${finalName}" created with lead agent ${leadId}`)
 
   return { team, leadMemberId: leadId }
@@ -173,6 +194,7 @@ export function deleteTeam(teamName: string): {
   // Cleanup
   activeTeams.delete(teamName)
   deleteTeamFile(teamName)
+  cleanupTeamMailboxes(teamName)
   invalidateSystemContextCache()
 
   logDebug(`Team "${teamName}" deleted`)
@@ -210,6 +232,7 @@ export function addTeamMember(
   team.members.push(member)
   activeTeams.set(teamName, team)
   writeTeamFile(team)
+  initializeTeamMailboxes(teamName, [memberName])
   invalidateSystemContextCache()
 
   logDebug(`Member "${memberName}" added to team "${teamName}"`)
@@ -228,9 +251,11 @@ export function removeTeamMember(teamName: string, memberId: string): boolean {
   const index = team.members.findIndex(m => m.agentId === memberId)
   if (index === -1) return false
 
+  const removed = team.members.splice(index, 1)[0]
   team.members.splice(index, 1)
   activeTeams.set(teamName, team)
   writeTeamFile(team)
+  removeInboxFile(removed.name, teamName)
   invalidateSystemContextCache()
 
   return true
