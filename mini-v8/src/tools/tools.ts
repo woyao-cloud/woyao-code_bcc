@@ -22,6 +22,10 @@ import { TaskOutputTool } from './builtin/TaskOutputTool/TaskOutputTool.js'
 import { TaskStopTool } from './builtin/TaskStopTool/TaskStopTool.js'
 import { TodoWriteTool } from './builtin/TodoWriteTool/TodoWriteTool.js'
 import { AskUserQuestionTool } from './builtin/AskUserQuestionTool/AskUserQuestionTool.js'
+import { SleepTool } from './builtin/SleepTool/SleepTool.js'
+import { ConfigTool } from './builtin/ConfigTool/ConfigTool.js'
+import { PowerShellTool } from './builtin/PowerShellTool/PowerShellTool.js'
+import { SendUserFileTool } from './builtin/SendUserFileTool/SendUserFileTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
 
@@ -64,6 +68,10 @@ export function getAllBaseTools(): Tool[] {
     TaskStopTool,
     TodoWriteTool,
     AskUserQuestionTool,
+    SleepTool,
+    ConfigTool,
+    PowerShellTool,
+    SendUserFileTool,
   ]
 }
 
