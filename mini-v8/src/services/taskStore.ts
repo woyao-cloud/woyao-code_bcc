@@ -12,6 +12,7 @@ import type {
   TaskId,
 } from '../agents/agentTypes.js'
 import { logDebug } from '../utils/log.js'
+import { enqueueNotification } from './notificationQueue.js'
 
 // ============================================================
 // User-visible Task store (existing API, unchanged)
@@ -171,6 +172,25 @@ class AgentTaskStoreImpl {
     logDebug(
       `AgentTask [${taskId.slice(0, 8)}] completed: ${result.totalTokens} tokens, ${result.totalToolUseCount} tool uses`,
     )
+    if (!task.notified) {
+      task.notified = true
+      enqueueNotification({
+        mode: 'task-notification',
+        priority: 'later',
+        taskId: task.taskId,
+        toolUseId: task.toolUseId,
+        agentId: task.agentId,
+        agentType: task.agentType,
+        status: 'completed',
+        summary: `Agent "${task.agentType}" completed: ${task.prompt.slice(0, 100)}`,
+        result: result.content.join('\n\n').slice(0, 2000),
+        usage: {
+          totalTokens: result.totalTokens,
+          toolUses: result.totalToolUseCount,
+          durationMs: result.totalDurationMs,
+        },
+      })
+    }
   }
 
   /** Mark a task as failed */
@@ -181,6 +201,25 @@ class AgentTaskStoreImpl {
     task.error = error
     task.endTime = Date.now()
     logDebug(`AgentTask [${taskId.slice(0, 8)}] failed: ${error}`)
+    if (!task.notified) {
+      task.notified = true
+      enqueueNotification({
+        mode: 'task-notification',
+        priority: 'later',
+        taskId: task.taskId,
+        toolUseId: task.toolUseId,
+        agentId: task.agentId,
+        agentType: task.agentType,
+        status: 'failed',
+        summary: `Agent "${task.agentType}" failed: ${error.slice(0, 100)}`,
+        result: undefined,
+        usage: {
+          totalTokens: task.progress.totalTokens,
+          toolUses: task.progress.toolUseCount,
+          durationMs: Date.now() - task.startTime,
+        },
+      })
+    }
   }
 
   /** Abort and mark a task as killed */

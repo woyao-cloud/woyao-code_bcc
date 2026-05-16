@@ -15,12 +15,18 @@ import type { Tool, ToolUseContext } from '../Tool.js'
 import { createAbortController } from '../utils/abortController.js'
 import { isOpenAIProvider } from '../utils/model/providers.js'
 import { resetTasks } from '../services/taskStore.js'
+import {
+  drainNotifications,
+  hasPendingNotifications,
+  buildTaskNotificationXML,
+} from '../services/notificationQueue.js'
 import { requestPermission } from '../services/permission/permissionManager.js'
 import {
   connectMCPServers,
   disconnectMCPServers,
 } from '../services/mcp/mcpClient.js'
 import { loadConfig } from '../services/config/configManager.js'
+import { query } from '../query.js'
 import {
   clearConversationBuffers,
   consumeForcedCompaction,
@@ -223,6 +229,18 @@ async function runREPL(
   const conversation = createConversationFromSnapshot(resumeSnapshot)
 
   while (true) {
+    // Drain pending task notifications (from background agents) before user input
+    if (hasPendingNotifications()) {
+      const notifs = drainNotifications()
+      for (const notif of notifs) {
+        const xml = buildTaskNotificationXML(notif)
+        conversation.fullMessages.push({ role: 'user', content: xml })
+        process.stderr.write(
+          `  [Notification] ${notif.agentType} ${notif.status}: ${notif.summary.slice(0, 60)}\n`,
+        )
+      }
+    }
+
     const line = await question('> ')
 
     if (line === null) break // Ctrl+D
@@ -412,256 +430,121 @@ async function runConversationTurn(
   tools: Tool[],
 ) {
   const cwd = getCwd()
-  const toolsMap = new Map(tools.map(t => [t.name, t]))
+  const systemPrompt =
+    'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).'
 
-  let totalInputTokens = 0
-  let totalOutputTokens = 0
+  const spinChars = ['/', '-', '\\', '|']
+  let spinIdx = 0
+  let spinInterval: ReturnType<typeof setInterval> | null = null
+  let gotFirstToken = false
 
-  const config = loadConfig()
-  const turnLimitManager = createDefaultTurnLimitManager(config.maxTurns)
-
-  while (true) {
-    const turnResult = turnLimitManager.increment()
-
-    // Check if we've reached the turn limit
-    if (!turnResult.shouldContinue) {
-      break
-    }
-
-    const activeModel = resolveModel()
-    const forceCompact = consumeForcedCompaction(conversation)
-    const { messagesForAPI } = projectMessagesForAPI(conversation, {
-      model: activeModel,
-      forceCompact,
-      commitCompactionToConversation: forceCompact,
-    })
-
-    const systemContext = await getSystemContext(undefined, {
-      conversationMessages: messagesForAPI,
-      sessionMemoryMode: 'auto',
-    })
-    const systemPrompt =
-      `You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).\n\n` +
-      systemContext
-
-    const toolUses: ToolUseBlock[] = []
-    const contentBlocks: ContentBlock[] = []
-    let fullText = ''
-    let streamComplete = false
-
-    // Show spinner
-    const spinChars = ['/', '-', '\\', '|']
-    let spinIdx = 0
-    const spinInterval = setInterval(() => {
-      if (streamComplete || fullText.length > 0) {
-        clearInterval(spinInterval)
+  const startSpinner = () => {
+    gotFirstToken = false
+    spinInterval = setInterval(() => {
+      if (gotFirstToken) {
+        clearInterval(spinInterval!)
+        spinInterval = null
         return
       }
       process.stderr.write('\r  ' + (spinChars[spinIdx] ?? '') + ' Thinking...')
       spinIdx = (spinIdx + 1) % 4
     }, 120)
-    const clear = () => {
+  }
+
+  const stopSpinner = () => {
+    if (spinInterval) {
       clearInterval(spinInterval)
-      process.stderr.write('\r' + ' '.repeat(40) + '\r')
+      spinInterval = null
     }
+    process.stderr.write('\r' + ' '.repeat(40) + '\r')
+  }
 
-    try {
-      await withRetry(
-        async () => {
-          const stream = streamClaudeAPI({
-            messages: messagesForAPI,
-            systemPrompt,
-            tools,
-            model: resolveModel(),
-          })
+  const gen = query(systemPrompt, conversation.fullMessages, tools, {
+    maxTurns: loadConfig().maxTurns,
+    onSystemContext: async msgs =>
+      getSystemContext(undefined, {
+        conversationMessages: msgs,
+        sessionMemoryMode: 'auto',
+      }),
+  })
 
-          for await (const event of stream) {
-            const evt = event as BetaRawMessageStreamEvent
-            switch (evt.type) {
-              case 'message_start':
-                break
-              case 'content_block_start': {
-                const block = evt.content_block
-                if (block.type === 'tool_use') {
-                  const tu: ToolUseBlock = {
-                    type: 'tool_use',
-                    id: block.id,
-                    name: block.name,
-                    input: (block.input as Record<string, unknown>) || {},
-                  }
-                  toolUses.push(tu)
-                  contentBlocks.push(tu)
-                  process.stderr.write('\n  ' + block.name + '...')
-                } else if (block.type === 'text')
-                  contentBlocks.push({
-                    type: 'text',
-                    text: '',
-                  })
-                break
-              }
-              case 'content_block_delta': {
-                const delta = evt.delta
-                if (delta.type === 'text_delta') {
-                  const lb = contentBlocks[contentBlocks.length - 1]
-                  if (lb && lb.type === 'text') {
-                    lb.text += delta.text
-                    fullText += delta.text
-                  }
-                } else if (delta.type === 'input_json_delta') {
-                  const lt = toolUses[toolUses.length - 1]
-                  if (lt) {
-                    const raw =
-                      (delta as unknown as Record<string, string>)
-                        .partial_json || ''
-                    const short =
-                      raw && raw.length > 80 ? raw.slice(0, 80) + '...' : raw
-                    process.stderr.write(`[dbg] input_json_delta #${jsonBuf.size} raw=${short}
-`)
-                    lt.input = safeJsonMerge(lt.input, raw, lt.id)
-                  }
-                }
-                break
-              }
-              case 'message_delta': {
-                totalInputTokens += evt.usage?.input_tokens ?? 0
-                totalOutputTokens += evt.usage.output_tokens
-                break
-              }
-            }
-          }
-          streamComplete = true
-        },
-        {
-          maxRetries: 2,
-          onRetry: (attempt, err) => {
-            if (isRetryableError(err)) {
-              process.stderr.write('\n  Retrying (' + attempt + ')...')
-            } else {
-              throw err
-            }
-          },
-        },
-      )
+  let totalInputTokens = 0
+  let totalOutputTokens = 0
+  let turnCount = 0
+  let lastToolName = ''
 
-      clear()
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('abort')) {
-        logError('Timeout')
+  startSpinner()
+
+  for await (const event of gen) {
+    switch (event.type) {
+      case 'text_delta':
+        if (!gotFirstToken) {
+          gotFirstToken = true
+          stopSpinner()
+        }
+        process.stdout.write(event.text)
         break
-      }
-      logError('API error: ' + msg)
-      break
-    }
 
-    if (fullText) process.stdout.write(fullText + '\n')
+      case 'tool_start':
+        if (lastToolName) process.stderr.write('\n')
+        lastToolName = event.name
+        process.stderr.write('  ' + event.name + '...')
+        break
 
-    const assistantContent: ContentItem[] = contentBlocks.map(b =>
-      b.type === 'tool_use'
-        ? {
-            type: 'tool_use',
-            id: b.id,
-            name: b.name,
-            input: b.input,
+      case 'tool_result':
+        if (event.isError) {
+          process.stderr.write(' (fail)\n')
+        } else if (lastToolName === event.name) {
+          process.stderr.write(' (ok)\n')
+        }
+        break
+
+      case 'usage':
+        totalInputTokens = event.totalInputTokens
+        totalOutputTokens = event.totalOutputTokens
+        break
+
+      case 'turn_end':
+        turnCount = event.turnCount
+        if (event.toolUseCount === 0) {
+          // Last turn, no tool uses — will be followed by terminal
+        }
+        break
+
+      case 'terminal':
+        stopSpinner()
+        lastToolName = ''
+
+        if (turnCount > 1) {
+          process.stderr.write(
+            '\n  Tokens: ' +
+              totalInputTokens +
+              ' in / ' +
+              totalOutputTokens +
+              ' out | ' +
+              turnCount +
+              ' turns\n',
+          )
+        }
+
+        // Auto-extract session memory if threshold met
+        if (shouldExtractMemory(conversation.fullMessages)) {
+          const notes = extractSessionNotes(conversation.fullMessages)
+          persistSessionMemory(notes)
+          if (notes.length > 0) {
+            process.stderr.write(
+              '  Memory: ' + notes.length + ' notes extracted\n',
+            )
           }
-        : { type: 'text', text: b.text },
-    )
-    if (assistantContent.length > 0) {
-      conversation.fullMessages.push({
-        role: 'assistant',
-        content: assistantContent,
-      })
-      persistConversationSnapshot(conversation)
-    }
+        }
 
-    if (toolUses.length === 0) {
-      const currentTurnCount = turnLimitManager.getTurnCount()
-      if (currentTurnCount > 1)
-        process.stderr.write(
-          '\n  Tokens: ' +
-            totalInputTokens +
-            ' in / ' +
-            totalOutputTokens +
-            ' out | ' +
-            currentTurnCount +
-            ' turns\n',
-        )
-      break
-    }
+        persistConversationSnapshot(conversation)
+        break
 
-    const toolResults: ContentItem[] = []
-    for (const toolUse of toolUses) {
-      const tool = toolsMap.get(toolUse.name)
-      if (!tool) {
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: 'Unknown tool: ' + toolUse.name,
-          is_error: true,
-        })
-        continue
-      }
-
-      const allowed = await requestPermission({
-        toolName: tool.name,
-        toolDescription: tool.description,
-        input: toolUse.input,
-      })
-      if (!allowed) {
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: 'Permission denied.',
-          is_error: true,
-        })
-        process.stderr.write(' (denied)\n')
-        continue
-      }
-
-      const ctx: ToolUseContext = {
-        toolUse: {
-          type: 'tool_use',
-          id: toolUse.id,
-          name: toolUse.name,
-          input: toolUse.input,
-        },
-        permissionMode: getPermissionMode(cwd) as 'default',
-        toolPermissionContext: {
-          mode: 'default',
-          additionalWorkingDirectories: new Map(),
-          alwaysAllowRules: {},
-          alwaysDenyRules: {},
-          isBypassPermissionsModeAvailable: false,
-        },
-        cwd,
-        abortSignal: new AbortController().signal,
-        messages: [],
-        isInteractive: true,
-      }
-
-      const result = await tool.execute(ctx, toolUse.input)
-      process.stderr.write(' (' + (result.success ? 'ok' : 'fail') + ')\n')
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: toolUse.id,
-        content: result.content,
-        is_error: !result.success,
-      })
-    }
-
-    conversation.fullMessages.push({
-      role: 'user',
-      content: toolResults,
-    })
-    persistConversationSnapshot(conversation)
-
-    // Auto-extract session memory if threshold met
-    if (shouldExtractMemory(conversation.fullMessages)) {
-      const notes = extractSessionNotes(conversation.fullMessages)
-      persistSessionMemory(notes)
-      if (notes.length > 0) {
-        process.stderr.write('  Memory: ' + notes.length + ' notes extracted\n')
-      }
+      case 'error':
+        stopSpinner()
+        logError('Query error: ' + event.message)
+        break
     }
   }
 }
