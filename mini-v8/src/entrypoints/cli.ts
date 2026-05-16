@@ -27,6 +27,7 @@ import {
 } from '../services/mcp/mcpClient.js'
 import { loadConfig } from '../services/config/configManager.js'
 import { query } from '../query.js'
+import { QueryEngine } from '../QueryEngine.js'
 import {
   clearConversationBuffers,
   consumeForcedCompaction,
@@ -227,6 +228,13 @@ async function runREPL(
   process.stderr.write('Type /help, Ctrl+C cancel, Ctrl+D exit\n\n')
 
   const conversation = createConversationFromSnapshot(resumeSnapshot)
+  const engine = new QueryEngine({
+    messages: conversation.fullMessages,
+    systemPrompt:
+      'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).',
+    tools,
+    model: resolveModel(),
+  })
 
   while (true) {
     // Drain pending task notifications (from background agents) before user input
@@ -409,7 +417,7 @@ async function runREPL(
 
     conversation.fullMessages.push({ role: 'user', content: line })
     persistConversationSnapshot(conversation)
-    await runConversationTurn(conversation, tools)
+    await runConversationTurn(engine, conversation, tools)
   }
 }
 
@@ -420,19 +428,22 @@ async function runConversation(
 ) {
   const tools = getTools()
   const conversation = createConversationFromSnapshot(resumeSnapshot)
-  conversation.fullMessages.push({ role: 'user', content: prompt })
-  persistConversationSnapshot(conversation)
-  await runConversationTurn(conversation, tools)
+  const engine = new QueryEngine({
+    messages: conversation.fullMessages,
+    systemPrompt:
+      'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).',
+    tools,
+    model: resolveModel(),
+  })
+  await runConversationTurn(engine, conversation, tools, prompt)
 }
 
 async function runConversationTurn(
+  engine: QueryEngine,
   conversation: ConversationBuffers,
   tools: Tool[],
+  preprompt?: string,
 ) {
-  const cwd = getCwd()
-  const systemPrompt =
-    'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).'
-
   const spinChars = ['/', '-', '\\', '|']
   let spinIdx = 0
   let spinInterval: ReturnType<typeof setInterval> | null = null
@@ -459,14 +470,21 @@ async function runConversationTurn(
     process.stderr.write('\r' + ' '.repeat(40) + '\r')
   }
 
-  const gen = query(systemPrompt, conversation.fullMessages, tools, {
-    maxTurns: loadConfig().maxTurns,
-    onSystemContext: async msgs =>
-      getSystemContext(undefined, {
-        conversationMessages: msgs,
-        sessionMemoryMode: 'auto',
-      }),
-  })
+  const gen = preprompt
+    ? engine.submitMessage(preprompt, {
+        onSystemContext: async msgs =>
+          getSystemContext(undefined, {
+            conversationMessages: msgs,
+            sessionMemoryMode: 'auto',
+          }),
+      })
+    : engine.submitMessage('', {
+        onSystemContext: async msgs =>
+          getSystemContext(undefined, {
+            conversationMessages: msgs,
+            sessionMemoryMode: 'auto',
+          }),
+      })
 
   let totalInputTokens = 0
   let totalOutputTokens = 0
@@ -506,9 +524,6 @@ async function runConversationTurn(
 
       case 'turn_end':
         turnCount = event.turnCount
-        if (event.toolUseCount === 0) {
-          // Last turn, no tool uses — will be followed by terminal
-        }
         break
 
       case 'terminal':
@@ -527,7 +542,6 @@ async function runConversationTurn(
           )
         }
 
-        // Auto-extract session memory if threshold met
         if (shouldExtractMemory(conversation.fullMessages)) {
           const notes = extractSessionNotes(conversation.fullMessages)
           persistSessionMemory(notes)

@@ -443,3 +443,63 @@ src/entrypoints/cli.ts
 未完事项
 - agentRunner.ts 的 runAgentLoopCore 尚未复用 query.ts（可后续优化）
 - cli.ts 中一些旧的 import 未清理（不影响编译）
+
+
+# Phase 2 已完成。改动总结：
+新增文件
+src/QueryEngine.ts (87行) — 有状态编排器类
+class QueryEngine {
+  constructor(options)     // 初始化 messages, systemPrompt, tools, model
+  submitMessage(input)     // async generator — 封装 query() + 追踪 state
+  interrupt()              // 终止当前查询
+  setModel() / setTools()  // 运行时变更
+  getTotalInput/OutputTokens(), getTurnCount()  // 状态读取
+}
+通过 submitMessage() 统一入口：先 push user message，再 delgate 给 query()，自动累计 totalInputTokens/totalOutputTokens/turnCount。
+修改文件
+src/entrypoints/cli.ts
+- runREPL / runConversation 创建 new QueryEngine({...}) 并复用
+- runConversation(engine, ...) 用 engine.submitMessage() 替代直接操作
+- 去掉了 const gen = query(...) 的直接调用
+当前状态
+| Phase | 状态 |
+|-------|------|
+| 1. 核心循环提取 (query.ts) | ✅ |
+| 2. QueryEngine 编排器 | ✅ |
+| 3. 紧凑子系统 | ⬜ |
+| 4. 工具执行增强 | ⬜ |
+| 5. 错误恢复 | ⬜ |
+下一阶段建议：Phase 3（autoCompact + reactiveCompact）或 Phase 4（工具并发执行），可并行执行。
+
+# Phase 3 已完成。Typecheck 零新增错误。
+发现：autoCompact 已存在
+src/services/compact/autoCompact.ts (788行) 已经完整实现，包含：
+- needsCompaction() — 70% 上下文窗口阈值检查
+- compactMessages() — 全压缩（首条 + 摘要 + 最近 N 对）
+- microcompactToolResults() — 高频工具结果清理
+- applyToolResultBudget() — 大结果预览截断
+- apiProjection.ts 已在 projectMessagesForAPI() 中完整调用
+新增文件
+src/services/compact/reactiveCompact.ts (43行)
+- isPromptTooLongError() — 检测 API 413 / prompt-too-long 错误（匹配 6 种模式）
+- reactiveCompact() — 三级降级策略：
+  1. 先 microcompact（最轻量）
+  2. 再 full compact keepPairs=2
+  3. 最后 keepPairs=1 硬压缩
+修改文件
+src/query.ts
+- 新增 hasAttemptedReactiveCompact 标志（单次防护）
+- catch 块中检测 prompt-too-long 错误时：
+  1. 调用 reactiveCompact()
+  2. 同步更新外部 messages 数组
+  3. continue 重试当前 turn
+  4. 防止无限循环
+当前状态
+| Phase | 状态 |
+|-------|------|
+| 1. 核心循环提取 | ✅ |
+| 2. QueryEngine 编排器 | ✅ |
+| 3. 紧凑子系统 | ✅ |
+| 4. 工具执行增强 | ⬜ |
+| 5. 错误恢复 | ⬜ |
+继续 Phase 4（工具并发执行 + result storage）？

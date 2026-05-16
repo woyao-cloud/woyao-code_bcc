@@ -10,6 +10,10 @@ import {
   createConversationBuffers,
   type ConversationBuffers,
 } from './services/messages/apiProjection.js'
+import {
+  reactiveCompact,
+  isPromptTooLongError,
+} from './services/compact/reactiveCompact.js'
 import { getSystemContext } from './context.js'
 import { getCwd } from './bootstrap/state.js'
 import type { Tool, ToolUseContext, ToolResult } from './Tool.js'
@@ -46,6 +50,7 @@ export async function* query(
   let totalOutputTokens = 0
 
   const conversation: ConversationBuffers = createConversationBuffers(messages)
+  let hasAttemptedReactiveCompact = false
 
   while (true) {
     const turnResult = turnLimitManager.increment()
@@ -176,6 +181,21 @@ export async function* query(
       }
       const msg = err instanceof Error ? err.message : String(err)
       logError(`Query error: ${msg}`)
+
+      if (isPromptTooLongError(msg) && !hasAttemptedReactiveCompact) {
+        hasAttemptedReactiveCompact = true
+        const result = reactiveCompact(conversation.fullMessages)
+        if (result.didCompact) {
+          messages.length = 0
+          messages.push(...result.messages)
+          yield {
+            type: 'error',
+            message: 'Recovery compact triggered, retrying...',
+          }
+          continue
+        }
+      }
+
       yield { type: 'error', message: msg }
       yield {
         type: 'terminal',
