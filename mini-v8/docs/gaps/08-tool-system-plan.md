@@ -454,3 +454,26 @@ QueryEngine 保持原样（接受已组装好的 tools 数组）。assembleToolP
 | 4. 权限系统 | ⬜ |
 | 5. 编排引擎 | ⬜ |
 要继续 Phase 3a（新增 P0 工具）？
+
+# Phase 3a 已完成。Typecheck 零错误 + 12/12 测试通过。
+新增 5 个工具
+| 工具 | 行数 | 说明 |
+|------|------|------|
+| TaskGet | 55 | 按 ID 查询用户任务详情（title/status/description/result） |
+| TaskOutput | 66 | 获取后台 agent 任务输出（status/content/tokens/error） |
+| TaskStop | 55 | 终止运行中的后台 agent 任务（调用 agentTaskStore.kill()） |
+| TodoWrite | 94 | 待办列表管理（add/complete/list 三个命令） |
+| AskUserQuestion | 63 | 向用户提问并等待 stdin 回答 |
+工具总数
+18（原有）+ 5（新增）= 23 个内置工具
+当前进度
+| Phase | 状态 |
+|-------|------|
+| 1. Tool 接口升级 | ✅ |
+| 2. 注册表重构 | ✅ |
+| 3a. P0 工具 | ✅ |
+| 3b. P1 工具 (PowerShell, WebBrowser, Config, etc.) | ⬜ |
+| 3c-3e. P2-P4 | ⬜ |
+| 4. 权限系统 | ⬜ |
+| 5. 编排引擎 | ⬜ |
+继续加 P1 工具？

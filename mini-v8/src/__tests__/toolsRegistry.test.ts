@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { getTools, getToolsMap } from '../tools/tools.js'
 
 describe('getTools', () => {
-  test('returns 18 tools', () => {
+  test('returns 23 tools', () => {
     const tools = getTools()
-    expect(tools.length).toBe(18)
+    expect(tools.length).toBe(23)
   })
 
   test('all tools have required name', () => {
@@ -51,6 +51,9 @@ describe('getTools', () => {
     expect(toolNames).toContain('TaskCreate')
     expect(toolNames).toContain('TaskUpdate')
     expect(toolNames).toContain('TaskList')
+    expect(toolNames).toContain('TaskGet')
+    expect(toolNames).toContain('TaskOutput')
+    expect(toolNames).toContain('TaskStop')
   })
 
   test('includes apply patch and skill tools', () => {

@@ -17,6 +17,11 @@ import { ExitPlanModeTool } from './builtin/ExitPlanModeTool/ExitPlanModeTool.js
 import { AgentTool } from './builtin/AgentTool/AgentTool.js'
 import { TeamCreateTool } from './builtin/TeamCreateTool/TeamCreateTool.js'
 import { TeamDeleteTool } from './builtin/TeamDeleteTool/TeamDeleteTool.js'
+import { TaskGetTool } from './builtin/TaskGetTool/TaskGetTool.js'
+import { TaskOutputTool } from './builtin/TaskOutputTool/TaskOutputTool.js'
+import { TaskStopTool } from './builtin/TaskStopTool/TaskStopTool.js'
+import { TodoWriteTool } from './builtin/TodoWriteTool/TodoWriteTool.js'
+import { AskUserQuestionTool } from './builtin/AskUserQuestionTool/AskUserQuestionTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
 
@@ -54,6 +59,11 @@ export function getAllBaseTools(): Tool[] {
     AgentTool,
     TeamCreateTool,
     TeamDeleteTool,
+    TaskGetTool,
+    TaskOutputTool,
+    TaskStopTool,
+    TodoWriteTool,
+    AskUserQuestionTool,
   ]
 }
 
