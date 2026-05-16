@@ -120,6 +120,9 @@ export const AgentTool: Tool = {
   inputSchema: AGENT_TOOL_SCHEMA,
   prompt:
     'Use the Agent tool to spawn subagents for complex tasks. Each subagent runs autonomously with its own context, tools, and constraints. Choose the right agent type for the task: Explore for codebase searching, Plan for planning, general-purpose for research/implementation, Verify for code review. Set run_in_background: true to run without blocking.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => false,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

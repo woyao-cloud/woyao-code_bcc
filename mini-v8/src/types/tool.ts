@@ -57,6 +57,17 @@ export type ToolConfig<Input, Output> = {
   category?: ToolCategory
   deprecated?: boolean
   deprecationMessage?: string
+  isConcurrencySafe?: (input: Input) => boolean
+  isReadOnly?: (input: Input) => boolean
+  isDestructive?: (input: Input) => boolean
+  checkPermissions?: (context: any, input: Input) => Promise<PermissionResult>
+  validateInput?: (
+    input: Input,
+    context: any,
+  ) => Promise<{ valid: boolean; error?: string }>
+  maxResultSizeChars?: number
+  isMcp?: boolean
+  mcpInfo?: { serverName: string; toolName: string }
 }
 
 /**
@@ -93,6 +104,17 @@ export interface TypedTool<Input = Record<string, unknown>, Output = any> {
   category?: ToolCategory
   deprecated?: boolean
   deprecationMessage?: string
+  isConcurrencySafe?: (input: Input) => boolean
+  isReadOnly?: (input: Input) => boolean
+  isDestructive?: (input: Input) => boolean
+  checkPermissions?: (context: any, input: Input) => Promise<PermissionResult>
+  validateInput?: (
+    input: Input,
+    context: any,
+  ) => Promise<{ valid: boolean; error?: string }>
+  maxResultSizeChars?: number
+  isMcp?: boolean
+  mcpInfo?: { serverName: string; toolName: string }
 }
 
 // ============================================================================

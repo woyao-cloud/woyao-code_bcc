@@ -15,6 +15,9 @@ export const FileWriteTool: Tool = {
     required: ['file_path', 'content'],
   },
   prompt: 'FileWrite tool: write content to a file.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => true,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

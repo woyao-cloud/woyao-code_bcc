@@ -19,6 +19,9 @@ export const ApplyPatchTool: Tool = {
   },
   prompt:
     'ApplyPatch tool: apply unified diff patches to files for precise edits.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => true,
 
   async execute(
     ctx: ToolUseContext,

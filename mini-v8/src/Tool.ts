@@ -69,6 +69,14 @@ export interface ToolResult {
 }
 
 /**
+ * Result of tool input validation
+ */
+export interface ValidationResult {
+  valid: boolean
+  error?: string
+}
+
+/**
  * A Tool that can be invoked by the model
  */
 export interface Tool {
@@ -110,6 +118,37 @@ export interface Tool {
   deprecated?: boolean
   /** Deprecation message if applicable */
   deprecationMessage?: string
+
+  // ----- Concurrency & Safety (Phase 1 additions) -----
+
+  /** Whether this tool is safe to run concurrently with others */
+  isConcurrencySafe?(input: Record<string, unknown>): boolean
+  /** Whether this tool only reads data (no side effects) */
+  isReadOnly?(input: Record<string, unknown>): boolean
+  /** Whether this tool can make destructive changes */
+  isDestructive?(input: Record<string, unknown>): boolean
+
+  /** Custom permission check beyond canUse */
+  checkPermissions?(
+    context: ToolUseContext,
+    input: Record<string, unknown>,
+  ): Promise<PermissionResult>
+
+  /** Validate tool input before execution */
+  validateInput?(
+    input: Record<string, unknown>,
+    context: ToolUseContext,
+  ): Promise<ValidationResult>
+
+  /** Max result size in chars before persisting to disk */
+  maxResultSizeChars?: number
+
+  // ----- MCP integration -----
+
+  /** Whether this tool wraps an MCP server tool */
+  isMcp?: boolean
+  /** MCP server info for wrapped tools */
+  mcpInfo?: { serverName: string; toolName: string }
 }
 
 /** Map of tool name to Tool */
@@ -169,6 +208,14 @@ export function buildTool<Input = Record<string, unknown>, Output = ToolResult>(
     category: config.category || 'other',
     deprecated: config.deprecated || false,
     deprecationMessage: config.deprecationMessage,
+    isConcurrencySafe: config.isConcurrencySafe,
+    isReadOnly: config.isReadOnly,
+    isDestructive: config.isDestructive,
+    checkPermissions: config.checkPermissions,
+    validateInput: config.validateInput,
+    maxResultSizeChars: config.maxResultSizeChars,
+    isMcp: config.isMcp,
+    mcpInfo: config.mcpInfo,
   }
 
   return tool

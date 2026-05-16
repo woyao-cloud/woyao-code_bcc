@@ -25,6 +25,9 @@ export const TeamDeleteTool: Tool = {
   inputSchema: TEAM_DELETE_SCHEMA,
   prompt:
     'Use TeamDelete to disband a team when all collaborative work is complete. This cleans up team resources and marks the swarm as finished.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => false,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

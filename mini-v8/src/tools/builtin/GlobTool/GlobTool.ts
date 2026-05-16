@@ -19,6 +19,9 @@ export const GlobTool: Tool = {
     required: ['pattern'],
   },
   prompt: 'Glob tool: find files by glob pattern.',
+  isConcurrencySafe: () => true,
+  isReadOnly: () => true,
+  isDestructive: () => false,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

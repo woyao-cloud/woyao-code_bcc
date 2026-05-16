@@ -17,6 +17,9 @@ export const FileEditTool: Tool = {
     required: ['file_path', 'old_string', 'new_string'],
   },
   prompt: 'FileEdit tool: precise search-and-replace editing.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => true,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

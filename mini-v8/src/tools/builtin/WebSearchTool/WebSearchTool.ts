@@ -30,6 +30,9 @@ export const WebSearchTool: Tool = {
     required: ['query'],
   },
   prompt: 'WebSearch tool for searching the web.',
+  isConcurrencySafe: () => true,
+  isReadOnly: () => true,
+  isDestructive: () => false,
 
   async execute(
     ctx: ToolUseContext,

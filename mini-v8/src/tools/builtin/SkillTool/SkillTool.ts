@@ -20,6 +20,9 @@ export const SkillTool: Tool = {
     required: ['command'],
   },
   prompt: 'Skill tool: discover and view project skills.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => true,
+  isDestructive: () => false,
 
   async execute(
     ctx: ToolUseContext,

@@ -16,6 +16,9 @@ export const BashTool: Tool = {
     required: ['command'],
   },
   prompt: 'Bash tool for executing shell commands.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => true,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

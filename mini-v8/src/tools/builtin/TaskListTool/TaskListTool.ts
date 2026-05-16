@@ -11,6 +11,9 @@ export const TaskListTool: Tool = {
     required: [],
   },
   prompt: 'TaskList tool: list all tracked tasks.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => true,
+  isDestructive: () => false,
 
   async execute(
     _ctx: ToolUseContext,

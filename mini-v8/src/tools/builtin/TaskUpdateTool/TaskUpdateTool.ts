@@ -23,6 +23,9 @@ export const TaskUpdateTool: Tool = {
     required: ['id', 'status'],
   },
   prompt: 'TaskUpdate tool: update task status and results.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => false,
 
   async execute(
     ctx: ToolUseContext,

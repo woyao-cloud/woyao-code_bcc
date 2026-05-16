@@ -7,6 +7,10 @@ export function createMCPToolWrapper(
     name: string
     description: string
     inputSchema: Record<string, unknown>
+    annotations?: {
+      readOnlyHint?: boolean
+      destructiveHint?: boolean
+    }
   },
 ): Tool {
   return {
@@ -20,6 +24,11 @@ export function createMCPToolWrapper(
       required: (mcpTool.inputSchema.required as string[]) || [],
     },
     prompt: 'MCP tool from: ' + mcpEntry.serverName,
+    isConcurrencySafe: () => mcpTool.annotations?.readOnlyHint ?? false,
+    isReadOnly: () => mcpTool.annotations?.readOnlyHint ?? false,
+    isDestructive: () => mcpTool.annotations?.destructiveHint ?? false,
+    isMcp: true,
+    mcpInfo: { serverName: mcpEntry.serverName, toolName: mcpTool.name },
     async execute(
       _ctx: ToolUseContext,
       input: Record<string, unknown>,

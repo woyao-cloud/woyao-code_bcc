@@ -21,6 +21,9 @@ export const WebFetchTool: Tool = {
     required: ['url', 'fetchInfo'],
   },
   prompt: 'WebFetch tool for fetching web page content.',
+  isConcurrencySafe: () => true,
+  isReadOnly: () => true,
+  isDestructive: () => false,
 
   async execute(
     ctx: ToolUseContext,

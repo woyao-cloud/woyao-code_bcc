@@ -18,6 +18,9 @@ export const TaskCreateTool: Tool = {
     required: ['title', 'description'],
   },
   prompt: 'TaskCreate tool: create sub-tasks to track work.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => false,
 
   async execute(
     ctx: ToolUseContext,

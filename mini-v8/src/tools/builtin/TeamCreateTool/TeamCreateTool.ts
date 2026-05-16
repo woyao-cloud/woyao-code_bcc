@@ -35,6 +35,9 @@ export const TeamCreateTool: Tool = {
   inputSchema: TEAM_CREATE_SCHEMA,
   prompt:
     'Use TeamCreate to form a new team when a task requires multiple specialized agents working together. After creating a team, use the Agent tool to add team members.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => false,
+  isDestructive: () => false,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

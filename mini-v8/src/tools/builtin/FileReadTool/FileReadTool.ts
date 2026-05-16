@@ -16,6 +16,9 @@ export const FileReadTool: Tool = {
     required: ['file_path'],
   },
   prompt: 'FileRead tool: read file contents with optional offset/limit.',
+  isConcurrencySafe: () => true,
+  isReadOnly: () => true,
+  isDestructive: () => false,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

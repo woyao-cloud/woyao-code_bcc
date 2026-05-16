@@ -20,6 +20,9 @@ export const GrepTool: Tool = {
     required: ['pattern'],
   },
   prompt: 'Grep tool: regex search across files.',
+  isConcurrencySafe: () => true,
+  isReadOnly: () => true,
+  isDestructive: () => false,
   async execute(
     ctx: ToolUseContext,
     input: Record<string, unknown>,

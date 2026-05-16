@@ -13,6 +13,9 @@ export const EnterPlanModeTool: Tool = {
     required: ['plan'],
   },
   prompt: 'EnterPlanMode tool: propose plan for approval.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => true,
+  isDestructive: () => false,
   async execute(
     _ctx: ToolUseContext,
     input: Record<string, unknown>,

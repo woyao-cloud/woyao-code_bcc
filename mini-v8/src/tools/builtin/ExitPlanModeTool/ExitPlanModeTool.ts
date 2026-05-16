@@ -12,6 +12,9 @@ export const ExitPlanModeTool: Tool = {
     required: ['summary'],
   },
   prompt: 'ExitPlanMode tool: exit plan mode.',
+  isConcurrencySafe: () => false,
+  isReadOnly: () => true,
+  isDestructive: () => false,
   async execute(
     _ctx: ToolUseContext,
     input: Record<string, unknown>,
