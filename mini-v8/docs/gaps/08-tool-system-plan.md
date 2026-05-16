@@ -477,3 +477,27 @@ QueryEngine 保持原样（接受已组装好的 tools 数组）。assembleToolP
 | 4. 权限系统 | ⬜ |
 | 5. 编排引擎 | ⬜ |
 继续加 P1 工具？
+
+Phase 5 已完成。39/39 测试通过，typecheck 零错误。
+新增 2 个文件
+src/services/tools/toolExecution.ts (85行) — 单工具执行生命周期
+- buildToolContext() — 构建 ToolUseContext
+- checkToolPermission() — 权限检查（支持 override）
+- executeSingleTool() — 执行 → 大结果持久化 → 返回 ToolExecutionResult
+src/services/tools/toolOrchestration.ts (130行) — 编排引擎
+- buildOrchestratedToolUses() — 批量权限检查 + context 构建
+- partitionTools() — 按 isConcurrencySafe() 分为 concurrent/serial
+- orchestrateToolExecution() — 完整流程：权限 → 分区 → 并发 (max 5) → 串行
+修改文件
+src/query.ts — 工具执行部分从 150 行 简化为 ~20 行：
+旧: 权限循环(80行) + 分区(10行) + execOne(20行) + 并发执行(15行) + 串行执行(10行) = 约150行
+新: orchestrateToolExecution() 调用(5行) + yield循环(15行) = 约20行
+最终状态
+| Phase | 行数估 | 状态 |
+|-------|--------|------|
+| 1. Tool 接口升级 | +30 | ✅ |
+| 2. 注册表重构 | +30 | ✅ |
+| 3a-c. P0-P2/P4 工具 | +425 (12 tools) | ✅ |
+| 4. 权限系统 | +280 | ✅ |
+| 5. 编排引擎 | +215 | ✅ |
+全部 5 个 Phase 已实现完毕。 工具系统从 18 个工具升级到 30 个内置工具，新增编排引擎、权限规则系统、以及标准化的 Tool 接口。

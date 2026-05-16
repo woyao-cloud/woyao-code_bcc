@@ -24,6 +24,10 @@ import type {
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { QueryEvent } from './query/transitions.js'
 import { persistLargeToolResult } from './services/toolResultStorage.js'
+import {
+  orchestrateToolExecution,
+  buildOrchestratedToolUses,
+} from './services/tools/toolOrchestration.js'
 
 export interface QueryOptions {
   model?: string
@@ -322,154 +326,34 @@ export async function* query(
       return
     }
 
-    const toolResults: ContentItem[] = []
-    const CONCURRENT_SAFE_TOOLS = new Set([
-      'Grep',
-      'Glob',
-      'Read',
-      'WebFetch',
-      'WebSearch',
-    ])
-    const MAX_CONCURRENCY = 5
+    const toolUseRequests = toolUses.map(tu => ({
+      id: tu.id,
+      name: tu.name,
+      input: tu.input,
+    }))
 
-    type PendingTool = {
-      toolUse: (typeof toolUses)[0]
-      tool: Tool
-      ctx: ToolUseContext
-    }
-
-    const pendingTools: PendingTool[] = []
-
-    for (const toolUse of toolUses) {
-      if (options.abortSignal?.aborted) {
-        yield {
-          type: 'terminal',
-          reason: 'aborted',
-          turnCount: turnLimitManager.getTurnCount(),
-          totalInputTokens,
-          totalOutputTokens,
-        }
-        return
-      }
-
-      const tool = toolsMap.get(toolUse.name)
-      if (!tool) {
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: `Unknown tool: ${toolUse.name}`,
-          is_error: true,
-        })
-        yield {
-          type: 'tool_result',
-          id: toolUse.id,
-          name: toolUse.name,
-          success: false,
-          content: `Unknown tool: ${toolUse.name}`,
-          isError: true,
-        }
-        continue
-      }
-
-      let allowed = true
-      if (options.canUseTool) {
-        allowed = await options.canUseTool(tool.name, toolUse.input)
-      } else {
-        allowed = await requestPermission({
-          toolName: tool.name,
-          toolDescription: tool.description,
-          input: toolUse.input,
-        })
-      }
-
-      if (!allowed) {
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: toolUse.id,
-          content: 'Permission denied.',
-          is_error: true,
-        })
-        yield {
-          type: 'tool_result',
-          id: toolUse.id,
-          name: toolUse.name,
-          success: false,
-          content: 'Permission denied.',
-          isError: true,
-        }
-        continue
-      }
-
-      const ctx: ToolUseContext = {
-        toolUse: {
-          type: 'tool_use',
-          id: toolUse.id,
-          name: toolUse.name,
-          input: toolUse.input,
-        },
-        permissionMode: getPermissionMode(cwd) as 'default',
-        toolPermissionContext: {
-          mode: 'default',
-          additionalWorkingDirectories: new Map(),
-          alwaysAllowRules: {},
-          alwaysDenyRules: {},
-          isBypassPermissionsModeAvailable: false,
-        },
-        cwd,
-        abortSignal: options.abortSignal ?? new AbortController().signal,
-        messages: [],
-        isInteractive: options.isInteractive ?? true,
-      }
-
-      pendingTools.push({ toolUse, tool, ctx })
-    }
-
-    // Partition: read-only tools run concurrently, write tools run serially
-    const readOnlyTools = pendingTools.filter(p =>
-      CONCURRENT_SAFE_TOOLS.has(p.toolUse.name),
-    )
-    const writeTools = pendingTools.filter(
-      p => !CONCURRENT_SAFE_TOOLS.has(p.toolUse.name),
+    const { toolResults } = await orchestrateToolExecution(
+      toolUseRequests,
+      toolsMap,
+      cwd,
+      {
+        canUseTool: options.canUseTool,
+        abortSignal: options.abortSignal,
+        isInteractive: options.isInteractive,
+      },
     )
 
-    async function execOne(
-      p: PendingTool,
-    ): Promise<{ toolResult: ContentItem; queryEvent: QueryEvent }> {
-      const result: ToolResult = await p.tool.execute(p.ctx, p.toolUse.input)
-      const content = persistLargeToolResult(result.content)
-      return {
-        toolResult: {
-          type: 'tool_result' as const,
-          tool_use_id: p.toolUse.id,
-          content,
-          is_error: !result.success,
-        },
-        queryEvent: {
-          type: 'tool_result' as const,
-          id: p.toolUse.id,
-          name: p.toolUse.name,
-          success: result.success,
-          content,
-          isError: !result.success,
-        },
+    for (const tr of toolResults) {
+      const raw = tr as unknown as Record<string, unknown>
+      const content = typeof raw.content === 'string' ? raw.content : ''
+      yield {
+        type: 'tool_result' as const,
+        id: raw.tool_use_id as string,
+        name: toolUses.find(tu => tu.id === raw.tool_use_id)?.name ?? 'unknown',
+        success: !raw.is_error,
+        content,
+        isError: raw.is_error === true,
       }
-    }
-
-    // Execute read-only tools concurrently (limited concurrency)
-    for (let i = 0; i < readOnlyTools.length; i += MAX_CONCURRENCY) {
-      const batch = readOnlyTools.slice(i, i + MAX_CONCURRENCY)
-      const batchResults = await Promise.all(batch.map(p => execOne(p)))
-      for (const r of batchResults) {
-        toolResults.push(r.toolResult)
-        yield r.queryEvent
-      }
-    }
-
-    // Execute write tools serially
-    for (const p of writeTools) {
-      const r = await execOne(p)
-      toolResults.push(r.toolResult)
-      yield r.queryEvent
     }
 
     messages.push({ role: 'user', content: toolResults })
