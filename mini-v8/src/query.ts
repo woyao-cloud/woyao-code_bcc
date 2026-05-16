@@ -23,6 +23,7 @@ import type {
   BetaRawMessageStreamEvent,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { QueryEvent } from './query/transitions.js'
+import { persistLargeToolResult } from './services/toolResultStorage.js'
 
 export interface QueryOptions {
   model?: string
@@ -280,6 +281,23 @@ export async function* query(
     }
 
     const toolResults: ContentItem[] = []
+    const CONCURRENT_SAFE_TOOLS = new Set([
+      'Grep',
+      'Glob',
+      'Read',
+      'WebFetch',
+      'WebSearch',
+    ])
+    const MAX_CONCURRENCY = 5
+
+    type PendingTool = {
+      toolUse: (typeof toolUses)[0]
+      tool: Tool
+      ctx: ToolUseContext
+    }
+
+    const pendingTools: PendingTool[] = []
+
     for (const toolUse of toolUses) {
       if (options.abortSignal?.aborted) {
         yield {
@@ -361,21 +379,55 @@ export async function* query(
         isInteractive: options.isInteractive ?? true,
       }
 
-      const result: ToolResult = await tool.execute(ctx, toolUse.input)
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: toolUse.id,
-        content: result.content,
-        is_error: !result.success,
-      })
-      yield {
-        type: 'tool_result',
-        id: toolUse.id,
-        name: toolUse.name,
-        success: result.success,
-        content: result.content,
-        isError: !result.success,
+      pendingTools.push({ toolUse, tool, ctx })
+    }
+
+    // Partition: read-only tools run concurrently, write tools run serially
+    const readOnlyTools = pendingTools.filter(p =>
+      CONCURRENT_SAFE_TOOLS.has(p.toolUse.name),
+    )
+    const writeTools = pendingTools.filter(
+      p => !CONCURRENT_SAFE_TOOLS.has(p.toolUse.name),
+    )
+
+    async function execOne(
+      p: PendingTool,
+    ): Promise<{ toolResult: ContentItem; queryEvent: QueryEvent }> {
+      const result: ToolResult = await p.tool.execute(p.ctx, p.toolUse.input)
+      const content = persistLargeToolResult(result.content)
+      return {
+        toolResult: {
+          type: 'tool_result' as const,
+          tool_use_id: p.toolUse.id,
+          content,
+          is_error: !result.success,
+        },
+        queryEvent: {
+          type: 'tool_result' as const,
+          id: p.toolUse.id,
+          name: p.toolUse.name,
+          success: result.success,
+          content,
+          isError: !result.success,
+        },
       }
+    }
+
+    // Execute read-only tools concurrently (limited concurrency)
+    for (let i = 0; i < readOnlyTools.length; i += MAX_CONCURRENCY) {
+      const batch = readOnlyTools.slice(i, i + MAX_CONCURRENCY)
+      const batchResults = await Promise.all(batch.map(p => execOne(p)))
+      for (const r of batchResults) {
+        toolResults.push(r.toolResult)
+        yield r.queryEvent
+      }
+    }
+
+    // Execute write tools serially
+    for (const p of writeTools) {
+      const r = await execOne(p)
+      toolResults.push(r.toolResult)
+      yield r.queryEvent
     }
 
     messages.push({ role: 'user', content: toolResults })

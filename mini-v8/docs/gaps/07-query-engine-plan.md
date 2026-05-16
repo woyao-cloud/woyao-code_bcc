@@ -503,3 +503,25 @@ src/query.ts
 | 4. 工具执行增强 | ⬜ |
 | 5. 错误恢复 | ⬜ |
 继续 Phase 4（工具并发执行 + result storage）？
+
+Phase 4 已完成。Typecheck 零新增错误。
+改动总结
+src/query.ts — 工具执行重构
+串行执行 → 并发分批执行：
+- 权限检查：保持串行（用户体验需要）
+- 只读工具 (Grep/Glob/Read/WebFetch/WebSearch)：Promise.all 并发执行，最大 5 个一批
+- 写入工具 (Write/Edit/Bash 等)：保持串行执行
+- 同时引入 persistLargeToolResult() 自动持久化大结果
+新增 src/services/toolResultStorage.ts (88行)
+- persistLargeToolResult(value) — 结果 > 100KB 时自动写入 os.tmpdir()/mini-v8-tool-results/，替换为 <persisted-output>path</persisted-output> 标签
+- restorePersistedToolResult(value) — 从标签恢复原始内容
+- cleanupAllPersistedResults() / releasePersistedResult() — 清理
+当前状态
+| Phase | 状态 |
+|-------|------|
+| 1. 核心循环提取 | ✅ |
+| 2. QueryEngine 编排器 | ✅ |
+| 3. 紧凑子系统 | ✅ |
+| 4. 工具执行增强 | ✅ |
+| 5. 错误恢复 | ⬜ |
+继续 Phase 5（max_output_tokens 恢复 + 最终错误处理）？
