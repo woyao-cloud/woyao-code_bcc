@@ -435,3 +435,22 @@ src/types/tool.ts — 同步扩展 ToolConfig 和 TypedTool
 | Agent, TaskCreate, TaskUpdate, TeamCreate, TeamDelete | ❌ false | ❌ false | ❌ false |
 MCPTool — createMCPToolWrapper 工厂现在从 MCP annotations 读取 readOnlyHint/destructiveHint，并注入 isMcp: true + mcpInfo
 接下来可继续 Phase 2（注册表重构）或 Phase 3a（新增 P0 工具：TaskGet/Output/Stop 等）。继续？
+
+# Phase 2 已完成。所有 12 个测试通过，typecheck 零新增错误。
+改动总结
+src/tools/tools.ts — 重构为三层架构
+| 函数 | 说明 |
+|------|------|
+| getAllBaseTools() | 单一数据源，返回 18 个内置工具 |
+| getTools() | 向后兼容，等效 [...getAllBaseTools(), ...mcpTools] |
+| assembleToolPool(mcpTools?) | 合并内置 + MCP，按名去重（内置优先），按字母排序保证 prompt cache 稳定 |
+QueryEngine 保持原样（接受已组装好的 tools 数组）。assembleToolPool 可供 agent runner 或其他需要自定义工具池的地方使用。
+当前进度
+| Phase | 状态 |
+|-------|------|
+| 1. Tool 接口升级 | ✅ |
+| 2. 注册表重构 | ✅ |
+| 3. 新增工具 | ⬜ |
+| 4. 权限系统 | ⬜ |
+| 5. 编排引擎 | ⬜ |
+要继续 Phase 3a（新增 P0 工具）？

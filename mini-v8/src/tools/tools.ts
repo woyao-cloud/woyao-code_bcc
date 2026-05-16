@@ -31,7 +31,10 @@ export function registerMCPTools(entries: MCPEntry[]): void {
   }
 }
 
-export function getTools(): Tool[] {
+/**
+ * Single source of truth for all built-in tool definitions.
+ */
+export function getAllBaseTools(): Tool[] {
   return [
     BashTool,
     FileReadTool,
@@ -51,12 +54,45 @@ export function getTools(): Tool[] {
     AgentTool,
     TeamCreateTool,
     TeamDeleteTool,
-    ...mcpTools,
   ]
+}
+
+export function getTools(): Tool[] {
+  return [...getAllBaseTools(), ...mcpTools]
 }
 
 export function getToolsMap(): Tools {
   const map = new Map<string, Tool>()
   for (const tool of getTools()) map.set(tool.name, tool)
   return map
+}
+
+/**
+ * Merge built-in tools with MCP tools into a single tool pool.
+ * Built-in tools take precedence on name conflicts.
+ * Tools are sorted by name for prompt-cache stability.
+ */
+export function assembleToolPool(mcpToolsInput?: Tool[]): Tool[] {
+  const builtIn = getAllBaseTools()
+  const external = mcpToolsInput ?? mcpTools
+
+  if (external.length === 0) {
+    return [...builtIn].sort(byName)
+  }
+
+  const seen = new Set<string>()
+  const merged: Tool[] = []
+
+  for (const tool of [...builtIn, ...external]) {
+    if (!seen.has(tool.name)) {
+      seen.add(tool.name)
+      merged.push(tool)
+    }
+  }
+
+  return merged.sort(byName)
+}
+
+function byName(a: Tool, b: Tool): number {
+  return a.name.localeCompare(b.name)
 }
