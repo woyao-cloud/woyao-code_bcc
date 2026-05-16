@@ -525,3 +525,34 @@ src/query.ts — 工具执行重构
 | 4. 工具执行增强 | ✅ |
 | 5. 错误恢复 | ⬜ |
 继续 Phase 5（max_output_tokens 恢复 + 最终错误处理）？
+
+# Phase 5 已完成。Typecheck 零新增错误。全部 5 个 Phase 已实现完毕。
+改动总结
+src/query.ts — max_output_tokens 恢复
+- recoveryCount 计数器（最多 3 次重试）
+- stopReason 捕获自 message_delta 事件的 delta.stop_reason 字段
+- 当 stopReason === 'max_tokens' 且 recoveryCount < 3 且模型未产生 tool_uses 时：
+  1. 推送 partial assistant response 到 messages
+  2. 注入 recovery 用户消息（首次："Increase token budget..."，后续："Continue..."）
+  3. continue 循环重试
+  4. 首次重试自动升级 maxTokens 从 32k → 64k
+src/query/transitions.ts — 新增 QueryRecovery 事件类型
+最终状态
+| Phase | 行数估计 | 状态 |
+|-------|----------|------|
+| 1. 核心循环提取 (query.ts + transitions) | ~460 | ✅ |
+| 2. QueryEngine 编排器 | ~90 | ✅ |
+| 3. 紧凑子系统 (reactiveCompact) | ~45 | ✅ |
+| 4. 工具并发 + result storage | ~100 | ✅ |
+| 5. max_tokens 恢复 | ~30 | ✅ |
+query.ts 最终结构：
+query() async generator
+├── 状态变量: totalTokens, recoveryCount, hasAttemptedReactiveCompact
+├── while(true) 主循环
+│   ├── Phase 1: 前置处理 (turn限制 → projection → context → systemPrompt)
+│   ├── Phase 2: API调用 + streaming (withRetry → streamClaudeAPI → 事件收集)
+│   ├── Phase 3: 后置恢复 (reactive compact → max_tokens recovery)
+│   ├── Phase 4: 事件yield (text_deltas → tool_starts → usage)
+│   ├── Phase 5: 消息管理 (push assistant → 检查结束)
+│   └── Phase 6: 工具执行 (权限检查 → 只读并发 + 写入串行)
+├── helpers: safeJsonMerge, execOne

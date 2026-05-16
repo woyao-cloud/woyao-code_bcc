@@ -55,6 +55,12 @@ export interface QueryError {
   message: string
 }
 
+export interface QueryRecovery {
+  readonly type: 'recovery'
+  reason: 'max_tokens_escalate' | 'max_tokens_continue'
+  attempt: number
+}
+
 export type QueryEvent =
   | QueryTextDelta
   | QueryToolStart
@@ -63,3 +69,4 @@ export type QueryEvent =
   | QueryTurnEnd
   | QueryTerminal
   | QueryError
+  | QueryRecovery

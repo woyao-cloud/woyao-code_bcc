@@ -52,6 +52,9 @@ export async function* query(
 
   const conversation: ConversationBuffers = createConversationBuffers(messages)
   let hasAttemptedReactiveCompact = false
+  let recoveryCount = 0
+  const DEFAULT_MAX_TOKENS = 32000
+  const ESCALATED_MAX_TOKENS = 64000
 
   while (true) {
     const turnResult = turnLimitManager.increment()
@@ -98,6 +101,7 @@ export async function* query(
     const textDeltas: string[] = []
     let fullText = ''
     let streamComplete = false
+    let stopReason: string | null = null
 
     try {
       await withRetry(
@@ -107,6 +111,8 @@ export async function* query(
             systemPrompt: fullSystemPrompt,
             tools,
             model: activeModel,
+            maxTokens:
+              recoveryCount > 0 ? ESCALATED_MAX_TOKENS : DEFAULT_MAX_TOKENS,
           })
 
           for await (const event of stream) {
@@ -156,6 +162,9 @@ export async function* query(
               case 'message_delta': {
                 totalInputTokens += evt.usage?.input_tokens ?? 0
                 totalOutputTokens += evt.usage.output_tokens
+                if (evt.delta?.stop_reason) {
+                  stopReason = evt.delta.stop_reason
+                }
                 break
               }
             }
@@ -231,6 +240,39 @@ export async function* query(
         totalOutputTokens,
       }
       return
+    }
+
+    // max_output_tokens recovery: model was cut off mid-response
+    if (
+      stopReason === 'max_tokens' &&
+      recoveryCount < 3 &&
+      toolUses.length === 0
+    ) {
+      const partialContent: ContentItem[] = contentBlocks.map(b =>
+        b.type === 'tool_use'
+          ? {
+              type: 'tool_use' as const,
+              id: b.id,
+              name: b.name,
+              input: b.input,
+            }
+          : { type: 'text' as const, text: b.text },
+      )
+      if (partialContent.length > 0) {
+        messages.push({ role: 'assistant', content: partialContent })
+      }
+      const recoveryMsg =
+        recoveryCount === 0
+          ? '[Response cut off by output token limit. Increase token budget and continue from where you left off.]'
+          : '[Response cut off again. Continue your response from where you were interrupted.]'
+      messages.push({ role: 'user', content: recoveryMsg })
+      recoveryCount++
+      yield {
+        type: 'recovery' as const,
+        reason: 'max_tokens_continue',
+        attempt: recoveryCount,
+      }
+      continue
     }
 
     // Yield collected text deltas after stream completes
