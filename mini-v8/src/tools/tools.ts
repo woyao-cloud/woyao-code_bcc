@@ -26,6 +26,9 @@ import { SleepTool } from './builtin/SleepTool/SleepTool.js'
 import { ConfigTool } from './builtin/ConfigTool/ConfigTool.js'
 import { PowerShellTool } from './builtin/PowerShellTool/PowerShellTool.js'
 import { SendUserFileTool } from './builtin/SendUserFileTool/SendUserFileTool.js'
+import { VerifyPlanExecutionTool } from './builtin/VerifyPlanExecutionTool/VerifyPlanExecutionTool.js'
+import { SendMessageTool } from './builtin/SendMessageTool/SendMessageTool.js'
+import { BriefTool } from './builtin/BriefTool/BriefTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
 
@@ -72,6 +75,9 @@ export function getAllBaseTools(): Tool[] {
     ConfigTool,
     PowerShellTool,
     SendUserFileTool,
+    VerifyPlanExecutionTool,
+    SendMessageTool,
+    BriefTool,
   ]
 }
 

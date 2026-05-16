@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { getTools, getToolsMap } from '../tools/tools.js'
 
 describe('getTools', () => {
-  test('returns 27 tools', () => {
+  test('returns 30 tools', () => {
     const tools = getTools()
-    expect(tools.length).toBe(27)
+    expect(tools.length).toBe(30)
   })
 
   test('all tools have required name', () => {
