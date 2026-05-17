@@ -7,8 +7,14 @@ import {
 } from './permissionRuleParser.js'
 import type { PermissionMode } from '../../types/permissions.js'
 
-const SETTINGS_DIR = join(homedir(), '.claude-code-mini')
-const SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json')
+const HOMEDIR = homedir()
+let SETTINGS_DIR = join(HOMEDIR, '.claude-code-mini')
+let SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json')
+
+export function setPermissionsConfigDir(dir: string): void {
+  SETTINGS_DIR = dir
+  SETTINGS_FILE = join(dir, 'settings.json')
+}
 
 interface Settings {
   permissionMode?: PermissionMode
