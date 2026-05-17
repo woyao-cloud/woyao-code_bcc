@@ -42,4 +42,5 @@ export function initializeCommands(
   registerAgentCommands(getLoadedPlugins)
   registerMcpCommand(getMcpEntries)
   registerDoctorCommand(getMcpEntries)
+  registerPermissionsCommand()
 }
