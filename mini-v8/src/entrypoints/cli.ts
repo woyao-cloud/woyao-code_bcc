@@ -28,36 +28,22 @@ import {
 import { loadConfig } from '../services/config/configManager.js'
 import { query } from '../query.js'
 import { QueryEngine } from '../QueryEngine.js'
+import { createInterface } from 'readline'
+import { stdin, stdout } from 'process'
 import {
-  clearConversationBuffers,
-  consumeForcedCompaction,
   createConversationBuffers,
-  projectMessagesForAPI,
-  requestForcedCompaction,
   serializeConversationBuffers,
   type ConversationBuffers,
 } from '../services/messages/apiProjection.js'
-import { withRetry, isRetryableError } from '../services/retry.js'
-import { createInterface } from 'readline'
-import { stdin, stdout } from 'process'
+import {
+  dispatchCommand,
+  initializeCommands,
+  type CommandContext,
+} from '../commands/index.js'
 
 // Plugin/Skill ecosystem imports
-import {
-  loadAllPlugins,
-  getPluginSkillFiles,
-  type LoadedPlugin,
-} from '../plugins/index.js'
-import {
-  discoverSkills,
-  formatSkillsForPrompt,
-} from '../services/skill/skillLoader.js'
-import { handlePluginCommand } from '../commands/pluginCommands.js'
-import {
-  handleSkillStoreCommand,
-  handleSkillSearchCommand,
-  isSkillSearchEnabled,
-  searchLocalSkills,
-} from '../commands/skillCommands.js'
+import { loadAllPlugins, type LoadedPlugin } from '../plugins/index.js'
+import { discoverSkills } from '../services/skill/skillLoader.js'
 
 // Memory system imports
 import {
@@ -69,20 +55,9 @@ import {
   getSessionId as getSessionMemoryId,
 } from '../services/memory/sessionMemory.js'
 import { getTeamMemoryForPrompt } from '../services/memory/teamMemorySync.js'
-import {
-  handleMemoryCommand,
-  handleSessionMemoryCommand,
-  handleMemoryStoresCommand,
-  handleTeamMemoryCommand,
-} from '../commands/memoryCommands.js'
 
 // Agent system imports
 import { initAgentRegistry, getAllAgents } from '../agents/agentRegistry.js'
-import {
-  handleAgentCommand,
-  handleTeamCommand,
-  handleSwarmCommand,
-} from '../commands/agentCommands.js'
 import {
   loadConversationSnapshot,
   loadLatestConversationSnapshot,
@@ -143,6 +118,13 @@ async function main() {
   const agentCount = getAllAgents().length
   process.stderr.write(
     `Agents: ${agentCount} registered (${getAllAgents().filter(a => a.source === 'built-in').length} built-in)\n`,
+  )
+
+  // Initialize command registry (auto-dispatches /commands)
+  initializeCommands(
+    conv => persistConversationSnapshot(conv),
+    () => loadConfig(),
+    () => loadedPlugins,
   )
 
   // Initialize memory system
@@ -254,164 +236,16 @@ async function runREPL(
     if (line === null) break // Ctrl+D
     if (line.trim() === '') continue
 
-    if (line === '/help') {
-      process.stderr.write(
-        [
-          'Commands:',
-          '  /help               - Show this help',
-          '  /exit /quit /q      - Exit',
-          '  /clear              - Clear conversation',
-          '  /model <name>       - Change model',
-          '  /compact            - Compact conversation context',
-          '',
-          '  /plugin ...         - Plugin management',
-          '  /skill ...          - Skill discovery & install',
-          '  /memory ...         - Memory management',
-          '  /session-memory ... - Session memory',
-          '  /memory-stores ...  - Memory stores',
-          '  /sync-memory ...    - Team memory sync',
-          '  /agent ...          - Agent management & execution',
-          '  /team ...           - Team management',
-          '  /swarm ...          - Swarm coordination',
-        ].join('\n') + '\n',
-      )
-      continue
-    }
-
-    if (line === '/exit' || line === '/quit' || line === '/q') {
-      process.stderr.write('Goodbye.\n')
-      break
-    }
-
-    if (line === '/clear') {
-      clearConversationBuffers(conversation)
-      persistConversationSnapshot(conversation)
-      process.stderr.write('Conversation cleared.\n')
-      continue
-    }
-
-    if (line.startsWith('/model ')) {
-      const modelName = line.slice('/model '.length).trim()
-      process.stderr.write(
-        'Model set to: ' + modelName + ' (effective on next turn)\n',
-      )
-      continue
-    }
-
-    if (line === '/compact') {
-      const activeModel = resolveModel()
-      const { didMicrocompact, didBudgetToolResults, didCompact } =
-        projectMessagesForAPI(conversation, {
-          model: activeModel,
-          forceCompact: true,
-          commitCompactionToConversation: true,
-        })
-      if (didCompact) {
-        requestForcedCompaction(conversation)
-        process.stderr.write('Next API turn will use a compacted projection.\n')
-      } else if (didBudgetToolResults) {
-        process.stderr.write(
-          'Next API turn will use budgeted tool result previews.\n',
-        )
-      } else if (didMicrocompact) {
-        process.stderr.write(
-          'Next API turn will use microcompacted tool results.\n',
-        )
-      } else {
-        process.stderr.write(
-          'No compaction needed (' +
-            conversation.fullMessages.length +
-            ' full messages).\n',
-        )
-      }
-      persistConversationSnapshot(conversation)
-      continue
-    }
-
-    // Plugin commands
-    if (line.startsWith('/plugin')) {
-      const result = await handlePluginCommand(line, getLoadedPlugins, getCwd())
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    // Skill commands
-    if (line.startsWith('/skill')) {
-      const subArgs = line.slice('/skill'.length).trim()
-      let result: string
-      if (subArgs.startsWith('search')) {
-        const query = subArgs.slice('search'.length).trim()
-        if (isSkillSearchEnabled()) {
-          const allSkills = discoverSkills(getCwd())
-          const found = searchLocalSkills(allSkills, query)
-          result =
-            found.length === 0
-              ? 'No matching skills found.'
-              : `Skills matching "${query}":\n` +
-                found.map(s => `  ${s.name} (${s.source})`).join('\n')
-        } else {
-          result = 'Skill search is not enabled.'
-        }
-      } else {
-        result = handleSkillSearchCommand(subArgs)
-      }
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    // Memory commands
-    if (line.startsWith('/memory ') || line === '/memory') {
-      const subArgs = line.slice('/memory'.length).trim()
-      const result = await handleMemoryCommand(
-        subArgs,
-        conversation.fullMessages,
-      )
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    if (line.startsWith('/session-memory')) {
-      const subArgs = line.slice('/session-memory'.length).trim()
-      const result = await handleSessionMemoryCommand(subArgs)
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    if (line.startsWith('/memory-stores')) {
-      const subArgs = line.slice('/memory-stores'.length).trim()
-      const result = await handleMemoryStoresCommand(subArgs)
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    if (line.startsWith('/sync-memory')) {
-      const subArgs = line.slice('/sync-memory'.length).trim()
-      const result = await handleTeamMemoryCommand(subArgs)
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    // Agent commands
-    if (line.startsWith('/agent')) {
-      const subArgs = line.slice('/agent'.length).trim()
-      const result = await handleAgentCommand(subArgs, getCwd(), loadedPlugins)
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    // Team commands
-    if (line.startsWith('/team')) {
-      const subArgs = line.slice('/team'.length).trim()
-      const result = await handleTeamCommand(subArgs)
-      process.stderr.write(result + '\n')
-      continue
-    }
-
-    // Swarm commands
-    if (line.startsWith('/swarm')) {
-      const subArgs = line.slice('/swarm'.length).trim()
-      const result = await handleSwarmCommand(subArgs)
-      process.stderr.write(result + '\n')
+    // Route through command registry
+    const cmdResult = await dispatchCommand(line, {
+      args: '',
+      conversation,
+      messages: conversation.fullMessages,
+      cwd: getCwd(),
+    })
+    if (cmdResult !== null) {
+      if (cmdResult === '__EXIT__') break
+      process.stderr.write(cmdResult + '\n')
       continue
     }
 
