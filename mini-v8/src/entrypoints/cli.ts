@@ -120,34 +120,6 @@ async function main() {
     `Agents: ${agentCount} registered (${getAllAgents().filter(a => a.source === 'built-in').length} built-in)\n`,
   )
 
-  // Initialize command registry (auto-dispatches /commands)
-  initializeCommands(
-    conv => persistConversationSnapshot(conv),
-    () => loadConfig(),
-    () => loadedPlugins,
-  )
-
-  // Initialize memory system
-  initSession(resumeSnapshot?.sessionId)
-  const sid = getSessionMemoryId()
-  process.stderr.write(
-    'Memory: session ' +
-      (sid ?? 'none') +
-      (resumeSnapshot ? ' resumed' : ' initialized') +
-      '\n',
-  )
-  if (cliArgs.resumeRequested && !resumeSnapshot) {
-    process.stderr.write('Resume: no saved snapshot found, starting fresh.\n')
-  } else if (resumeSnapshot) {
-    process.stderr.write(
-      'Resume: restored ' +
-        resumeSnapshot.conversation.fullMessages.length +
-        ' full messages' +
-        (didRestoreCwd ? ' and cwd' : '') +
-        '.\n',
-    )
-  }
-
   // Connect MCP servers (best-effort)
   const mcpEntries = await connectMCPServers()
   registerMCPTools(mcpEntries)
@@ -161,6 +133,16 @@ async function main() {
         ' tool(s) loaded\n',
     )
   }
+
+  // Initialize command registry (auto-dispatches /commands)
+  // MCP entries getter returns the current entries (updated after connection)
+  const getMcpEntries = () => mcpEntries
+  initializeCommands(
+    conv => persistConversationSnapshot(conv),
+    () => loadConfig(),
+    () => loadedPlugins,
+    getMcpEntries,
+  )
 
   const isPiped = !process.stdin.isTTY
   const hasArgs = args.length > 0

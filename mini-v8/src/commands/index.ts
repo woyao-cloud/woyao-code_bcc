@@ -11,6 +11,7 @@ export type { CommandContext, CommandHandler } from './registry.js'
 
 import type { ConversationBuffers } from '../services/messages/apiProjection.js'
 import type { LoadedPlugin } from '../plugins/index.js'
+import type { MCPEntry } from '../services/mcp/mcpClient.js'
 import { registerHelpCommand } from './help.js'
 import { registerExitCommand } from './exit.js'
 import { registerClearCommand } from './clear.js'
@@ -20,11 +21,14 @@ import { registerPluginCommand } from './plugin.js'
 import { registerSkillCommand } from './skill.js'
 import { registerMemoryCommands } from './memory.js'
 import { registerAgentCommands } from './agent.js'
+import { registerMcpCommand } from './mcp.js'
+import { registerDoctorCommand } from './doctor.js'
 
 export function initializeCommands(
   persistSnapshot: (conv: ConversationBuffers) => void,
   getConfig: () => { maxTurns?: number },
   getLoadedPlugins: () => LoadedPlugin[],
+  getMcpEntries: () => MCPEntry[],
 ): void {
   registerHelpCommand()
   registerExitCommand()
@@ -35,4 +39,6 @@ export function initializeCommands(
   registerSkillCommand()
   registerMemoryCommands()
   registerAgentCommands(getLoadedPlugins)
+  registerMcpCommand(getMcpEntries)
+  registerDoctorCommand(getMcpEntries)
 }
