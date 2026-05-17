@@ -7,10 +7,16 @@ import type { Tool } from '../../Tool.js'
 import { getAPIKey, getAnthropicBaseURL } from '../../utils/auth.js'
 import { resolveModel } from '../../utils/model/model.js'
 import { BETAS } from '../../constants/betas.js'
-import { isOpenAIProvider } from '../../utils/model/providers.js'
+import {
+  isOpenAIProvider,
+  isGeminiProvider,
+} from '../../utils/model/providers.js'
 import { streamOpenAIAPI, getOpenAIConfig } from './openai/client.js'
 import { openAIToAnthropicStream } from './openai/streamAdapter.js'
 import { resolveOpenAIModel } from './openai/modelMap.js'
+import { streamGeminiAPI, getGeminiConfig } from './gemini/client.js'
+import { geminiToAnthropicStream } from './gemini/streamAdapter.js'
+import { resolveGeminiModel } from './gemini/modelMap.js'
 
 // ============================================================
 // API Client for mini-v5 (Anthropic + OpenAI)
@@ -67,7 +73,27 @@ export async function callClaudeAPI(params: QueryParams) {
 export async function* streamClaudeAPI(
   params: QueryParams,
 ): AsyncGenerator<BetaRawMessageStreamEvent> {
-  if (isOpenAIProvider()) {
+  if (isGeminiProvider()) {
+    const config = getGeminiConfig()
+    if (!config.apiKey) {
+      throw new Error('GEMINI_API_KEY not set.')
+    }
+
+    const geminiModel = params.model
+      ? resolveGeminiModel(resolveModel(params.model))
+      : config.model
+
+    const geminiStream = streamGeminiAPI({
+      systemPrompt: params.systemPrompt,
+      messages: params.messages as Array<{ role: string; content: unknown }>,
+      tools: params.tools,
+      model: geminiModel,
+      signal: params.signal,
+      maxTokens: params.maxTokens,
+    })
+
+    yield* geminiToAnthropicStream(geminiStream)
+  } else if (isOpenAIProvider()) {
     // Use OpenAI-compatible path
     const config = getOpenAIConfig()
     if (!config.apiKey) {
