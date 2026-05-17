@@ -23,6 +23,7 @@ import { registerMemoryCommands } from './memory.js'
 import { registerAgentCommands } from './agent.js'
 import { registerMcpCommand } from './mcp.js'
 import { registerDoctorCommand } from './doctor.js'
+import { registerPermissionsCommand } from './permissions.js'
 
 export function initializeCommands(
   persistSnapshot: (conv: ConversationBuffers) => void,

@@ -379,13 +379,13 @@ async function runConversationTurn(
   }
 }
 
-interface ParsedCLIArgs {
+export interface ParsedCLIArgs {
   promptArgs: string[]
   resumeRequested: boolean
   resumeSessionId?: string
 }
 
-function parseCLIArgs(rawArgs: string[]): ParsedCLIArgs {
+export function parseCLIArgs(rawArgs: string[]): ParsedCLIArgs {
   const promptArgs: string[] = []
   let resumeRequested = false
   let resumeSessionId: string | undefined
