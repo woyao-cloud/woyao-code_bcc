@@ -29,6 +29,7 @@ import { SendUserFileTool } from './builtin/SendUserFileTool/SendUserFileTool.js
 import { VerifyPlanExecutionTool } from './builtin/VerifyPlanExecutionTool/VerifyPlanExecutionTool.js'
 import { SendMessageTool } from './builtin/SendMessageTool/SendMessageTool.js'
 import { BriefTool } from './builtin/BriefTool/BriefTool.js'
+import { NotebookEditTool } from './builtin/NotebookEditTool/NotebookEditTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
 
@@ -78,6 +79,7 @@ export function getAllBaseTools(): Tool[] {
     VerifyPlanExecutionTool,
     SendMessageTool,
     BriefTool,
+    NotebookEditTool,
   ]
 }
 
