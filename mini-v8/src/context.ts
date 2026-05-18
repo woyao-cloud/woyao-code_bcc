@@ -198,12 +198,13 @@ export async function getEnhancedContext(
       })
     }
     if (mergedConfig.includeGit) {
-      gitStatus = await getGitStatus(cwd ?? '', { maxFiles: 3 })
+      gitStatus = await getGitStatus(cwd ?? '')
       if (gitStatus) {
-        minimalParts.git = gitStatus.promptText
+        const gitText = `Branch: ${gitStatus.branch ?? 'unknown'}\nCommit: ${gitStatus.shortCommit ?? 'none'}\n${gitStatus.isClean ? 'Clean' : 'Unclean'}`
+        minimalParts.git = gitText
         minimalBlocks.push({
           key: 'git',
-          text: gitStatus.promptText,
+          text: gitText,
           priority: 80,
         })
       }
@@ -213,6 +214,7 @@ export async function getEnhancedContext(
     const result: EnhancedContext = {
       fullContext: sorted.map(b => b.text).join('\n\n'),
       parts: minimalParts,
+      timestamp: new Date(),
     }
     setCachedEnhancedContext(cacheKey, result)
     return result

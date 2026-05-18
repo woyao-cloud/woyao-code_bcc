@@ -2,6 +2,7 @@ import { describe, test, expect, mock } from 'bun:test'
 
 // --- Mocks for query.js dependencies ---
 
+// @ts-expect-error - bun:test mock type is opaque in strict mode
 mock.module('../services/api/claude.js', () => ({
   streamClaudeAPI: () => {
     async function* gen() {
@@ -25,33 +26,40 @@ mock.module('../services/api/claude.js', () => ({
   },
 }))
 
+// @ts-expect-error
 mock.module('../context.js', () => ({
   getSystemContext: () => Promise.resolve('Mock context.'),
 }))
 
+// @ts-expect-error
 mock.module('../utils/model/model.js', () => ({
   resolveModel: () => 'claude-sonnet-4-20250514',
   getMaxTokens: () => 100000,
 }))
 
+// @ts-expect-error
 mock.module('../bootstrap/state.js', () => ({
   getCwd: () => '/test/cwd',
 }))
 
+// @ts-expect-error
 mock.module('../utils/settings/settings.js', () => ({
   getPermissionMode: () => 'default',
 }))
 
+// @ts-expect-error
 mock.module('../services/permission/permissionManager.js', () => ({
   requestPermission: () => Promise.resolve(true),
   setPermissionMode: () => {},
   getPermissionMode: () => 'default',
 }))
 
+// @ts-expect-error
 mock.module('../services/config/configManager.js', () => ({
   loadConfig: () => ({ maxTurns: 50 }),
 }))
 
+// @ts-expect-error
 mock.module('../services/toolResultStorage.js', () => ({
   persistLargeToolResult: (content: string) => content,
 }))
@@ -70,7 +78,7 @@ describe('QueryEngine', () => {
   })
 
   test('constructor accepts options', () => {
-    const messages = [{ role: 'user', content: 'Hello' }]
+    const messages = [{ role: 'user', content: 'Hello' }] as any
     const engine = new QueryEngine({
       systemPrompt: 'Custom prompt.',
       messages: messages as any,
@@ -163,6 +171,7 @@ describe('QueryEngine', () => {
   })
 
   test('submitMessage with canUseTool option', async () => {
+    // @ts-expect-error
     const canUseTool = mock(() => Promise.resolve(true))
     const engine = new QueryEngine()
 

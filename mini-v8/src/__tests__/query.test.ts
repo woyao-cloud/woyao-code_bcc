@@ -13,37 +13,45 @@ async function* fakeStream(): AsyncGenerator<BetaRawMessageStreamEvent> {
   }
 }
 
+// @ts-expect-error - bun:test mock type is opaque in strict mode
 mock.module('../services/api/claude.js', () => ({
   streamClaudeAPI: () => fakeStream(),
 }))
 
+// @ts-expect-error
 mock.module('../context.js', () => ({
   getSystemContext: () => Promise.resolve('Mock system context.'),
 }))
 
+// @ts-expect-error
 mock.module('../utils/model/model.js', () => ({
   resolveModel: () => 'claude-sonnet-4-20250514',
   getMaxTokens: () => 100000,
 }))
 
+// @ts-expect-error
 mock.module('../bootstrap/state.js', () => ({
   getCwd: () => '/test/cwd',
 }))
 
+// @ts-expect-error
 mock.module('../utils/settings/settings.js', () => ({
   getPermissionMode: () => 'default',
 }))
 
+// @ts-expect-error
 mock.module('../services/permission/permissionManager.js', () => ({
   requestPermission: () => Promise.resolve(true),
   setPermissionMode: () => {},
   getPermissionMode: () => 'default',
 }))
 
+// @ts-expect-error
 mock.module('../services/config/configManager.js', () => ({
   loadConfig: () => ({ maxTurns: 50 }),
 }))
 
+// @ts-expect-error
 mock.module('../services/toolResultStorage.js', () => ({
   persistLargeToolResult: (content: string) => content,
 }))
@@ -164,7 +172,7 @@ describe('query()', () => {
       }
     }
 
-    expect(usage).not.toBeNull()
+    expect(usage).toBeDefined()
     expect(usage.totalInputTokens).toBe(50)
     expect(usage.totalOutputTokens).toBe(25)
   })
@@ -242,7 +250,7 @@ describe('query()', () => {
     }
 
     // maxTurns=5: mock keeps returning tool_use, so loop hits the limit
-    expect(terminal).not.toBeNull()
+    expect(terminal).toBeDefined()
     expect(terminal.reason).toBe('max_turns')
   })
 

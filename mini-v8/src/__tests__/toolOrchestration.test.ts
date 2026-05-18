@@ -3,14 +3,17 @@ import type { Tool } from '../Tool.js'
 
 // --- Mocks ---
 
+// @ts-expect-error - bun:test mock type is opaque in strict mode
 mock.module('../utils/settings/settings.js', () => ({
   getPermissionMode: () => 'default',
 }))
 
+// @ts-expect-error
 mock.module('../services/permission/permissionManager.js', () => ({
   requestPermission: () => Promise.resolve(true),
 }))
 
+// @ts-expect-error
 mock.module('../services/toolResultStorage.js', () => ({
   persistLargeToolResult: (content: string) => content,
 }))

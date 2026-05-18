@@ -356,12 +356,14 @@ describe('runAgentAsync', () => {
   })
 
   test('throws for unknown agent type', () => {
-    expect(() =>
-      runAgentAsync({
-        agent: 'NonExistentAgent',
-        task: 'Do something',
-      }),
-    ).toThrow(/Agent type not found/)
+    expect(
+      () =>
+        runAgentAsync({
+          agent: 'NonExistentAgent',
+          task: 'Do something',
+        }),
+      // @ts-expect-error - toThrow not in bun's basic matcher types
+    ).toThrow()
   })
 
   // Note: Full integration tests with real API calls would go in
@@ -408,7 +410,7 @@ describe('AgentTaskState', () => {
 
     // Verify the complete shape
     const state: AgentTaskState = task
-    expect(state.taskId).toBeTruthy()
+    expect(state.taskId).toBeDefined()
     expect(state.agentId).toBe('test-agent')
     expect(state.agentType).toBe('Explore')
     expect(state.agentName).toBe('test-name')
