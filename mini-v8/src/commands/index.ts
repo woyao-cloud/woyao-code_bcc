@@ -24,6 +24,7 @@ import { registerAgentCommands } from './agent.js'
 import { registerMcpCommand } from './mcp.js'
 import { registerDoctorCommand } from './doctor.js'
 import { registerPermissionsCommand } from './permissions.js'
+import { registerAddDirCommand } from './addDir.js'
 
 export function initializeCommands(
   persistSnapshot: (conv: ConversationBuffers) => void,
@@ -43,4 +44,5 @@ export function initializeCommands(
   registerMcpCommand(getMcpEntries)
   registerDoctorCommand(getMcpEntries)
   registerPermissionsCommand()
+  registerAddDirCommand()
 }
