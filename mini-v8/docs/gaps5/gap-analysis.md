@@ -2,7 +2,14 @@
 
 > 分析范围：主项目 `woyao-code_bcc` vs `mini-v8` 的 `src/` 目录。
 > 数据截止日期：2026-05-20
-
+  1. 概览规模 — 主项目 src 约 6000+ 文件 vs mini-v8 约 250 文件，24 倍差距
+  2. 完整缺失的顶层模块 — 列举了 14 个完全缺失的目录（screens、components、hooks、bridge、daemon、ssh、vim、voice 等）
+  3. 跨模块对比 — 详细对比了 services（30 个子模块逐个标注状态）、utils、commands、cli、state、tests 的差距
+  4. Package 层差距 — 主项目 13 个 workspace 包（含 @ant/ink 2000+ 文件、mcp-client 1848 文件、remote-control-server 3290 文件），mini-v8 零包
+  5. 工具集差距 — 主项目 60+ 工具 vs mini-v8 约 35 个，逐个对比
+  6. 架构风格差异 — Ink React vs 纯文本、Zustand vs 无状态管理等 9 个维度
+  7. 核心能力评分 — 10 项能力 1-5 星评分
+  8. 总结 + 缩小差距的 P0-P3 优先级建议
 ---
 
 ## 一、概览：规模差距

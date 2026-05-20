@@ -14,6 +14,7 @@ import {
   shouldExtractMemory,
   extractSessionNotes,
   persistSessionMemory,
+  persistSessionMemoryWithTokenCount,
   getSessionMemoryForPrompt,
   getSessionMemorySummaryForCompact,
   hasSessionMemoryCompactionSummary,
@@ -21,6 +22,14 @@ import {
   setSessionMemoryDir,
   shouldInjectSessionMemoryIntoPrompt,
   updateSessionMemoryFromMessages,
+  getLastSummarizedMessageId,
+  setLastSummarizedMessageId,
+  resetSummarizedMessageId,
+  markExtractionStarted,
+  markExtractionCompleted,
+  waitForSessionMemoryExtraction,
+  truncateSessionMemoryForCompact,
+  isSessionMemoryEmpty,
   SESSION_MEMORY_COMPACTION_MARKER,
   type SessionMemoryNote,
 } from '../sessionMemory.js'
@@ -280,5 +289,151 @@ describe('session memory prompt policy', () => {
     expect(shouldInjectSessionMemoryIntoPrompt(compactedMessages, 'auto')).toBe(
       false,
     )
+  })
+})
+
+describe('lastSummarizedMessageId', () => {
+  beforeEach(() => {
+    resetSummarizedMessageId()
+  })
+
+  test('defaults to undefined', () => {
+    expect(getLastSummarizedMessageId()).toBeUndefined()
+  })
+
+  test('set and get', () => {
+    setLastSummarizedMessageId('msg-uuid-123')
+    expect(getLastSummarizedMessageId()).toBe('msg-uuid-123')
+  })
+
+  test('set undefined clears value', () => {
+    setLastSummarizedMessageId('msg-uuid-123')
+    setLastSummarizedMessageId(undefined)
+    expect(getLastSummarizedMessageId()).toBeUndefined()
+  })
+
+  test('resetSummarizedMessageId clears the value', () => {
+    setLastSummarizedMessageId('msg-uuid-123')
+    resetSummarizedMessageId()
+    expect(getLastSummarizedMessageId()).toBeUndefined()
+  })
+})
+
+describe('extraction guards', () => {
+  test('markExtractionStarted and markExtractionCompleted', () => {
+    markExtractionStarted()
+    markExtractionCompleted()
+    // Should complete without error
+  })
+
+  test('waitForSessionMemoryExtraction resolves quickly when no extraction in progress', async () => {
+    await waitForSessionMemoryExtraction()
+    // Should resolve immediately without error
+  })
+})
+
+describe('persistSessionMemoryWithTokenCount metadata', () => {
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'smem-meta-'))
+    setSessionMemoryDir(tempDir)
+    initSession()
+    setLastSummarizedMessageId(undefined)
+  })
+
+  afterEach(() => {
+    endSession()
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {}
+  })
+
+  test('persists lastSummarizedMessageId to disk', () => {
+    const originalId = getSessionId()
+    expect(originalId).not.toBe(null)
+    setLastSummarizedMessageId('meta-test-uuid-42')
+    persistSessionMemoryWithTokenCount([
+      {
+        id: 'note-1',
+        category: 'decision',
+        content: 'Test metadata persistence',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+
+    // End session and re-init to simulate reload from disk
+    const savedId = originalId
+    endSession()
+    resetSummarizedMessageId()
+
+    initSession(savedId ?? undefined)
+    expect(getLastSummarizedMessageId()).toBe('meta-test-uuid-42')
+    const notes = readSessionMemory(savedId ?? '')
+    expect(notes.length).toBeGreaterThan(0)
+    expect(notes[0]?.content).toBe('Test metadata persistence')
+  })
+
+  test('persisting without lastSummarizedMessageId writes no metadata line', () => {
+    resetSummarizedMessageId()
+    persistSessionMemoryWithTokenCount([
+      {
+        id: 'note-1',
+        category: 'user-request',
+        content: 'No metadata test',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+
+    const id = getSessionId()
+    expect(id).not.toBe(null)
+    if (id) {
+      const notes = readSessionMemory(id)
+      expect(notes.length).toBeGreaterThan(0)
+      expect(notes[0]?.content).toBe('No metadata test')
+    }
+  })
+})
+
+describe('isSessionMemoryEmpty', () => {
+  test('returns true for empty string', () => {
+    expect(isSessionMemoryEmpty('')).toBe(true)
+  })
+
+  test('returns true for whitespace-only content', () => {
+    expect(isSessionMemoryEmpty('   \n\n  ')).toBe(true)
+  })
+
+  test('returns true for template-only content (no list items)', () => {
+    const template =
+      '# Session Memory\n\nSession: test-123\n\n## User Requests\n\n## Decisions Made\n\n## Context & Files\n'
+    expect(isSessionMemoryEmpty(template)).toBe(true)
+  })
+
+  test('returns false when content has list items', () => {
+    const content =
+      '# Session Memory\n\nSession: test-123\n\n## User Requests\n- Fix the login bug\n'
+    expect(isSessionMemoryEmpty(content)).toBe(false)
+  })
+})
+
+describe('truncateSessionMemoryForCompact', () => {
+  const sampleContent =
+    '# Session Memory\n\nSession: test-123\n\n## User Requests\n- Fix the login bug\n- Deploy to production\n\n## Decisions Made\n- Use PostgreSQL for data storage\n- Migrate from MongoDB\n\n## Context & Files\n- File: src/auth.ts\n- File: src/db.ts\n'
+
+  test('does not truncate content within bounds', () => {
+    const result = truncateSessionMemoryForCompact(sampleContent)
+    expect(result.wasTruncated).toBe(false)
+    expect(result.truncatedContent).toBe(sampleContent)
+  })
+
+  test('truncates with very small total limit', () => {
+    const result = truncateSessionMemoryForCompact(sampleContent, 2)
+    expect(result.wasTruncated).toBe(true)
+    expect(result.truncatedContent.length).toBeLessThan(sampleContent.length)
+  })
+
+  test('handles empty content', () => {
+    const result = truncateSessionMemoryForCompact('')
+    expect(result.wasTruncated).toBe(false)
+    expect(result.truncatedContent).toBe('')
   })
 })

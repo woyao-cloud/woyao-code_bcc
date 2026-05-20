@@ -52,6 +52,8 @@ let config: SessionMemoryConfig = { ...DEFAULT_CONFIG }
 let sessionId: string | null = null
 let lastExtractionTokenCount = 0
 let extractedNotes: SessionMemoryNote[] = []
+let lastSummarizedMessageId: string | undefined
+let extractionStartedAt: number | undefined
 
 // Mutable path for test isolation
 let sessionMemDir = join(homedir(), '.claude-code-mini', 'session-memory')
@@ -78,6 +80,8 @@ export function initSession(existingSessionId?: string): void {
       ? existingSessionId.trim()
       : 'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   lastExtractionTokenCount = 0
+  lastSummarizedMessageId = undefined
+  extractionStartedAt = undefined
   extractedNotes = sessionId ? readSessionMemory(sessionId) : []
   invalidateSystemContextCache()
 }
@@ -90,7 +94,67 @@ export function endSession(): void {
   sessionId = null
   lastExtractionTokenCount = 0
   extractedNotes = []
+  lastSummarizedMessageId = undefined
+  extractionStartedAt = undefined
   invalidateSystemContextCache()
+}
+
+// ============================================================
+// Last Summarized Message ID — tracks compaction boundary
+// ============================================================
+
+export function getLastSummarizedMessageId(): string | undefined {
+  return lastSummarizedMessageId
+}
+
+export function setLastSummarizedMessageId(id: string | undefined): void {
+  lastSummarizedMessageId = id
+}
+
+export function resetSummarizedMessageId(): void {
+  lastSummarizedMessageId = undefined
+}
+
+// ============================================================
+// Concurrent Extraction Guards
+// ============================================================
+
+/**
+ * Mark a session memory extraction as started (for concurrency protection).
+ */
+export function markExtractionStarted(): void {
+  extractionStartedAt = Date.now()
+}
+
+/**
+ * Mark a session memory extraction as completed.
+ */
+export function markExtractionCompleted(): void {
+  extractionStartedAt = undefined
+}
+
+const EXTRACTION_WAIT_TIMEOUT_MS = 15_000
+const EXTRACTION_STALE_THRESHOLD_MS = 60_000
+
+/**
+ * Wait for any in-progress session memory extraction to complete.
+ * Returns immediately if no extraction is in progress or if extraction
+ * is stale (>1 minute old).
+ */
+export async function waitForSessionMemoryExtraction(
+  timeoutMs: number = EXTRACTION_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const startTime = Date.now()
+  while (extractionStartedAt !== undefined) {
+    const age = Date.now() - extractionStartedAt
+    if (age > EXTRACTION_STALE_THRESHOLD_MS) {
+      return // Stale extraction — don't wait
+    }
+    if (Date.now() - startTime > timeoutMs) {
+      return // Timeout — continue anyway
+    }
+    await sleep(100)
+  }
 }
 
 export function getSessionMemoryConfig(): SessionMemoryConfig {
@@ -202,6 +266,10 @@ export function persistSessionMemoryWithTokenCount(
   }
 
   const lines = ['# Session Memory', '', 'Session: ' + sessionId, '']
+  if (lastSummarizedMessageId) {
+    lines.push('LastSummarizedMessageId: ' + lastSummarizedMessageId)
+    lines.push('')
+  }
   const byCategory = groupBy(allNotes, n => n.category)
   for (const [category, catNotes] of Object.entries(byCategory)) {
     lines.push('## ' + formatCategory(category))
@@ -222,7 +290,12 @@ export function readSessionMemory(id: string): SessionMemoryNote[] {
   const path = getSessionMemoryPath(id)
   if (!existsSync(path)) return []
   try {
-    return parseSessionMemoryMarkdown(readFileSync(path, 'utf-8'))
+    const raw = readFileSync(path, 'utf-8')
+    const { notes, metadata } = parseSessionMemoryMarkdown(raw)
+    if (metadata.lastSummarizedMessageId) {
+      lastSummarizedMessageId = metadata.lastSummarizedMessageId
+    }
+    return notes
   } catch {
     return []
   }
@@ -301,6 +374,135 @@ export function shouldInjectSessionMemoryIntoPrompt(
 
   // Auto mode only injects into a fresh or reset conversation slice.
   return messages.length <= 2
+}
+
+// ============================================================
+// Truncation & Empty Check for Compaction
+// ============================================================
+
+const COMPACT_MAX_TOKENS_PER_SECTION = 2000
+const COMPACT_MAX_TOTAL_TOKENS = 12_000
+
+/**
+ * Check if session memory content is effectively empty (only template, no real notes).
+ * Returns true when the content has no markdown list items (actual notes).
+ */
+export function isSessionMemoryEmpty(content: string): boolean {
+  if (!content || content.trim().length === 0) return true
+  for (const line of content.split('\n')) {
+    if (line.trim().startsWith('- ')) return false
+  }
+  return true
+}
+
+/**
+ * Truncate session memory content for compaction use.
+ * Per-section: max 2000 tokens. Total: max 12000 tokens.
+ * Returns the truncated content and whether truncation was applied.
+ */
+export function truncateSessionMemoryForCompact(
+  content: string,
+  maxTotalTokens: number = COMPACT_MAX_TOTAL_TOKENS,
+): { truncatedContent: string; wasTruncated: boolean } {
+  if (!content || content.trim().length === 0) {
+    return { truncatedContent: content, wasTruncated: false }
+  }
+
+  const sections = splitSections(content)
+  const truncatedSections: string[] = []
+  let totalTokens = 0
+  let wasTruncated = false
+
+  // Always include header/metadata (first section)
+  const headerSection = sections[0]
+  if (headerSection) {
+    truncatedSections.push(headerSection)
+    totalTokens += estimateSectionTokens(headerSection)
+  }
+
+  // Process content sections with per-section and total limits
+  for (let i = 1; i < sections.length; i++) {
+    const section = sections[i]
+    if (!section) continue
+
+    const sectionTokens = estimateSectionTokens(section)
+    if (sectionTokens > COMPACT_MAX_TOKENS_PER_SECTION) {
+      // Truncate this section to its token limit
+      const truncated = truncateSectionToTokens(
+        section,
+        COMPACT_MAX_TOKENS_PER_SECTION,
+      )
+      truncatedSections.push(truncated)
+      totalTokens += COMPACT_MAX_TOKENS_PER_SECTION
+      wasTruncated = true
+    } else {
+      truncatedSections.push(section)
+      totalTokens += sectionTokens
+    }
+
+    // Stop if total limit exceeded
+    if (totalTokens >= maxTotalTokens) {
+      wasTruncated = true
+      break
+    }
+  }
+
+  return {
+    truncatedContent: truncatedSections.join('\n'),
+    wasTruncated,
+  }
+}
+
+function splitSections(content: string): string[] {
+  const lines = content.split('\n')
+  const sections: string[] = []
+  let currentSection: string[] = []
+
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      if (currentSection.length > 0) {
+        sections.push(currentSection.join('\n'))
+      }
+      currentSection = [line]
+    } else {
+      currentSection.push(line)
+    }
+  }
+
+  if (currentSection.length > 0) {
+    sections.push(currentSection.join('\n'))
+  }
+
+  return sections
+}
+
+function estimateSectionTokens(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4))
+}
+
+function truncateSectionToTokens(text: string, maxTokens: number): string {
+  const maxChars = maxTokens * 4
+  if (text.length <= maxChars) return text
+
+  const headerEnd = text.indexOf('\n')
+  const header = headerEnd >= 0 ? text.slice(0, headerEnd + 1) : ''
+  const budget = maxChars - header.length
+
+  if (budget <= 0) return header + '[section truncated]\n'
+
+  const body = text.slice(header.length)
+  const truncated = body.slice(0, budget)
+
+  // Try to end at a complete list item
+  const lastNewLine = truncated.lastIndexOf('\n- ')
+  const breakPoint = lastNewLine > 0 ? lastNewLine : truncated.length
+
+  return header + truncated.slice(0, breakPoint) + '\n[section truncated]\n'
+}
+
+// Sleep helper for async polling
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 // Helpers
@@ -428,22 +630,37 @@ function formatCategory(category: string): string {
   return labels[category] ?? category
 }
 
-function parseSessionMemoryMarkdown(raw: string): SessionMemoryNote[] {
+interface SessionMemoryMetadata {
+  lastSummarizedMessageId?: string
+}
+
+function parseSessionMemoryMarkdown(
+  raw: string,
+): { notes: SessionMemoryNote[]; metadata: SessionMemoryMetadata } {
   const notes: SessionMemoryNote[] = []
+  const metadata: SessionMemoryMetadata = {}
   const lines = raw.split('\n')
   let currentCategory = 'general'
+  let inMetadataBlock = true // Only lines before first '## ' header are metadata
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]?.trim() ?? ''
 
     if (line.startsWith('## ')) {
+      inMetadataBlock = false
       const header = line.slice(3).trim().toLowerCase()
       if (header.includes('request')) currentCategory = 'user-request'
       else if (header.includes('decision')) currentCategory = 'decision'
       else if (header.includes('context') || header.includes('file'))
         currentCategory = 'context'
       else currentCategory = header.replace(/\s+/g, '-')
+    } else if (inMetadataBlock && line.startsWith('LastSummarizedMessageId:')) {
+      const value = line.slice('LastSummarizedMessageId:'.length).trim()
+      if (value) {
+        metadata.lastSummarizedMessageId = value
+      }
     } else if (line.startsWith('- ')) {
+      inMetadataBlock = false
       notes.push({
         id: 'note-' + notes.length,
         category: currentCategory,
@@ -453,7 +670,7 @@ function parseSessionMemoryMarkdown(raw: string): SessionMemoryNote[] {
     }
   }
 
-  return notes
+  return { notes, metadata }
 }
 
 function truncatePromptText(text: string, maxChars: number): string {
