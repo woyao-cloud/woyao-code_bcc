@@ -391,6 +391,7 @@ export function microcompactToolResults(
   options?: {
     triggerThreshold?: number
     keepRecent?: number
+    positionThreshold?: number
   },
 ): BetaMessageParam[] {
   const triggerThreshold =
@@ -399,10 +400,15 @@ export function microcompactToolResults(
     1,
     options?.keepRecent ?? MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS,
   )
+  const positionThreshold = options?.positionThreshold
   const toolNames = getToolUseNameMap(messages)
-  const compactableResultIds: string[] = []
 
-  for (const msg of messages) {
+  // Collect compactable IDs and track which message each belongs to
+  const compactableResultIds: string[] = []
+  const idToMessageIndex = new Map<string, number>()
+
+  for (let mi = 0; mi < messages.length; mi++) {
+    const msg = messages[mi]
     if (msg.role !== 'user' || !Array.isArray(msg.content)) {
       continue
     }
@@ -415,15 +421,35 @@ export function microcompactToolResults(
       const toolName = toolNames.get(block.tool_use_id)
       if (toolName && COMPACTABLE_TOOL_NAMES.has(toolName)) {
         compactableResultIds.push(block.tool_use_id)
+        idToMessageIndex.set(block.tool_use_id, mi)
       }
     }
   }
 
-  if (compactableResultIds.length <= triggerThreshold) {
+  // Determine which IDs to clear via count-based and/or position-based logic
+  const idsToClear = new Set<string>()
+
+  // Count-based: only if above trigger threshold, keep the most recent results
+  if (compactableResultIds.length > triggerThreshold) {
+    for (const id of compactableResultIds.slice(0, -keepRecent)) {
+      idsToClear.add(id)
+    }
+  }
+
+  // Position-based: compact tool results from messages older than positionThreshold
+  if (positionThreshold !== undefined && positionThreshold > 0) {
+    const ageCutoff = messages.length - positionThreshold
+    for (const [id, mi] of idToMessageIndex) {
+      if (mi < ageCutoff) {
+        idsToClear.add(id)
+      }
+    }
+  }
+
+  if (idsToClear.size === 0) {
     return messages
   }
 
-  const idsToClear = new Set(compactableResultIds.slice(0, -keepRecent))
   let changed = false
 
   const nextMessages = messages.map(msg => {

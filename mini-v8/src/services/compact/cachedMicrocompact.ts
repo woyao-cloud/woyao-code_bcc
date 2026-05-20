@@ -64,6 +64,11 @@ export function createCachedMCState(): CachedMCState {
 export function getMicrocompactWithCache(
   state: CachedMCState,
   messages: BetaMessageParam[],
+  microcompactOptions?: {
+    triggerThreshold?: number
+    keepRecent?: number
+    positionThreshold?: number
+  },
 ): BetaMessageParam[] {
   const identity = computeMessageIdentity(messages)
 
@@ -75,7 +80,7 @@ export function getMicrocompactWithCache(
     return state.lastResult
   }
 
-  const result = microcompactToolResults(messages)
+  const result = microcompactToolResults(messages, microcompactOptions)
   state.messageCount = messages.length
   state.messageIdentity = identity
   state.lastResult = result

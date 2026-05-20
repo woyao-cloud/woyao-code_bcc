@@ -263,7 +263,9 @@ export function projectMessagesForAPI(
     return changed ? { ...msg, content: nextContent } : msg
   })
 
-  const microcompacted = getMicrocompactWithCache(cachedMCState, messagesForAPI)
+  const microcompacted = getMicrocompactWithCache(cachedMCState, messagesForAPI, {
+    positionThreshold: 10,
+  })
   const didMicrocompact = microcompacted !== messagesForAPI
   messagesForAPI = microcompacted
 
