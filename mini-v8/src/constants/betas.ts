@@ -11,4 +11,5 @@ export const BETAS = [
   'fine-grained-tool-streaming-2025-05-14',
   'tool-search-2025-07-09',
   'strict-system-messages-v2-2025-10-07',
+  'context-management-2025-06-27',
 ]

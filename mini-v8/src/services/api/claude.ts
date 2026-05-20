@@ -6,6 +6,7 @@ import type {
 import type { Tool } from '../../Tool.js'
 import { getAPIKey, getAnthropicBaseURL } from '../../utils/auth.js'
 import { resolveModel } from '../../utils/model/model.js'
+import { getAPIContextManagement } from '../compact/apiMicrocompact.js'
 import { BETAS } from '../../constants/betas.js'
 import {
   isOpenAIProvider,
@@ -49,6 +50,9 @@ export async function callClaudeAPI(params: QueryParams) {
     ...(baseURL ? { baseURL } : {}),
   })
 
+  const contextManagement = getAPIContextManagement()
+  const useContextManagement = !baseURL && contextManagement
+
   const response = await client.beta.messages.create({
     model,
     max_tokens: params.maxTokens ?? MAX_TOKENS,
@@ -62,6 +66,7 @@ export async function callClaudeAPI(params: QueryParams) {
     betas: baseURL
       ? ([] as unknown as [string, ...string[]])
       : (BETAS as [string, ...string[]]),
+    ...(useContextManagement && { context_management: contextManagement }),
   })
 
   return response
@@ -128,6 +133,9 @@ export async function* streamClaudeAPI(
       ...(baseURL ? { baseURL } : {}),
     })
 
+    const contextManagement = getAPIContextManagement()
+    const useContextManagement = !baseURL && contextManagement
+
     const stream = await client.beta.messages.create(
       {
         model,
@@ -143,6 +151,7 @@ export async function* streamClaudeAPI(
           ? ([] as unknown as [string, ...string[]])
           : (BETAS as [string, ...string[]]),
         stream: true as const,
+        ...(useContextManagement && { context_management: contextManagement }),
       },
       {
         signal: params.signal,
