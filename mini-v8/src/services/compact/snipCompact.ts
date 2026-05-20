@@ -3,19 +3,22 @@
  * by injecting a snip_boundary system message that records which UUIDs to remove.
  * On the next API projection, those messages are physically filtered out,
  * reducing token consumption without losing the boundary record.
+ *
+ * Snip projection logic lives in snipProjection.ts.
  */
 
 import { randomUUID } from '../../utils/crypto.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import {
+  isSnipBoundaryMessage,
+  getRemovedUuids,
+  estimateMessageTokens,
+  type SnipEntry,
+} from './snipProjection.js'
 
 // ============================================================
 // Types
 // ============================================================
-
-export interface SnipEntry {
-  msg: BetaMessageParam
-  uuid: string
-}
 
 export interface SnipBoundaryMessage {
   role: 'system'
@@ -45,49 +48,6 @@ export const SNIP_NUDGE_TEXT =
   'The conversation history is getting long. Consider using /force-snip to compress older messages, freeing context window space for continued work.'
 
 // ============================================================
-// Snip Boundary Detection
-// ============================================================
-
-/**
- * Check whether a BetaMessageParam is a snip_boundary system message.
- */
-function isSnipBoundary(msg: BetaMessageParam): boolean {
-  const m = msg as unknown as Record<string, unknown>
-  return m.role === 'system' && m.subtype === 'snip_boundary'
-}
-
-/**
- * Extract removedUuids from a snip_boundary message.
- */
-function getRemovedUuids(msg: BetaMessageParam): string[] | undefined {
-  const m = msg as unknown as Record<string, unknown>
-  const meta = m.snipMetadata as { removedUuids?: string[] } | undefined
-  return meta?.removedUuids
-}
-
-// ============================================================
-// Token Estimation
-// ============================================================
-
-function estimateMessageTokens(msg: BetaMessageParam): number {
-  if (typeof msg.content === 'string') {
-    return Math.max(1, Math.ceil(msg.content.length / 4))
-  }
-  if (Array.isArray(msg.content)) {
-    let chars = 0
-    for (const block of msg.content) {
-      if (typeof block === 'string') {
-        chars += block.length
-      } else if (block && typeof block === 'object') {
-        chars += JSON.stringify(block).length
-      }
-    }
-    return Math.max(1, Math.ceil(chars / 4))
-  }
-  return 1
-}
-
-// ============================================================
 // Core Snip Logic
 // ============================================================
 
@@ -102,7 +62,7 @@ export function snipCompactIfNeeded(entries: SnipEntry[]): SnipResult {
   let removedUuids: string[] | undefined
 
   for (let i = entries.length - 1; i >= 0; i--) {
-    if (isSnipBoundary(entries[i].msg)) {
+    if (isSnipBoundaryMessage(entries[i].msg)) {
       boundaryIdx = i
       removedUuids = getRemovedUuids(entries[i].msg)
       break
@@ -131,7 +91,7 @@ export function snipCompactIfNeeded(entries: SnipEntry[]): SnipResult {
     if (removedSet.has(entry.uuid)) {
       tokensFreed += estimateMessageTokens(entry.msg)
       // Keep the boundary message itself even if its UUID is somehow in removed set
-      if (isSnipBoundary(entry.msg)) {
+      if (isSnipBoundaryMessage(entry.msg)) {
         kept.push(entry)
       }
     } else {
@@ -140,32 +100,6 @@ export function snipCompactIfNeeded(entries: SnipEntry[]): SnipResult {
   }
 
   return { entries: kept, executed: true, tokensFreed }
-}
-
-/**
- * Accumulative version: collect removedUuids from ALL snip_boundary messages
- * (not just the last one). Useful for API projection where we want to
- * filter out anything ever marked as removed.
- */
-export function projectSnippedView(entries: SnipEntry[]): SnipEntry[] {
-  const allRemoved = new Set<string>()
-
-  for (const entry of entries) {
-    if (isSnipBoundary(entry.msg)) {
-      const uuids = getRemovedUuids(entry.msg)
-      if (uuids) {
-        for (const id of uuids) {
-          allRemoved.add(id)
-        }
-      }
-    }
-  }
-
-  if (allRemoved.size === 0) {
-    return entries
-  }
-
-  return entries.filter(entry => !allRemoved.has(entry.uuid))
 }
 
 // ============================================================

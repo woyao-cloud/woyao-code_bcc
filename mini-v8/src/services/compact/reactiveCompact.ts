@@ -3,6 +3,7 @@ import {
   compactMessages,
   needsCompaction,
 } from './autoCompact.js'
+import { dropOldestGroups } from './groupByApiRound.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 
@@ -46,6 +47,15 @@ export function reactiveCompact(
   const lastResort = compactMessages(microcompacted, { keepPairs: 1 })
   if (lastResort !== microcompacted) {
     runPostCompactCleanup()
+    return { didCompact: true, messages: lastResort }
   }
-  return { didCompact: lastResort !== microcompacted, messages: lastResort }
+
+  // Ultra last resort: drop oldest API round group
+  const dropped = dropOldestGroups(microcompacted, 1)
+  if (dropped.length < microcompacted.length) {
+    runPostCompactCleanup()
+    return { didCompact: true, messages: dropped }
+  }
+
+  return { didCompact: false, messages: microcompacted }
 }

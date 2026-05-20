@@ -17,10 +17,9 @@ import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
 import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 import { restorePersistedToolResult } from '../toolResultStorage.js'
 import {
-  snipCompactIfNeeded,
   projectSnippedView,
   type SnipEntry,
-} from '../compact/snipCompact.js'
+} from '../compact/snipProjection.js'
 import {
   createCachedMCState,
   getMicrocompactWithCache,
