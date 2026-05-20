@@ -10,6 +10,8 @@ import {
   createConversationBuffers,
   type ConversationBuffers,
 } from './services/messages/apiProjection.js'
+import { createToolResultBudgetState } from './services/compact/autoCompact.js'
+import { runPostCompactCleanup } from './services/compact/postCompactCleanup.js'
 import {
   reactiveCompact,
   isPromptTooLongError,
@@ -200,8 +202,16 @@ export async function* query(
         hasAttemptedReactiveCompact = true
         const result = reactiveCompact(conversation.fullMessages)
         if (result.didCompact) {
-          messages.length = 0
-          messages.push(...result.messages)
+          conversation.fullMessages.length = 0
+          conversation.fullMessages.push(...result.messages)
+          // Trim UUIDs to match new message count
+          conversation.messageUuids.length = Math.min(
+            conversation.messageUuids.length,
+            result.messages.length,
+          )
+          conversation.toolResultBudgetState = createToolResultBudgetState()
+          conversation.forceCompactNextProjection = false
+          runPostCompactCleanup()
           yield {
             type: 'error',
             message: 'Recovery compact triggered, retrying...',

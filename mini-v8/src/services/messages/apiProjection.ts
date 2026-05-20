@@ -5,8 +5,8 @@ import {
   compactMessages,
   createToolResultBudgetState,
   estimateTokens,
+  getEstimatedContextWindow,
   getToolResultBudgetReplacementMap,
-  microcompactToolResults,
   needsCompaction,
   reconstructToolResultBudgetState,
   serializeToolResultBudgetState,
@@ -21,6 +21,13 @@ import {
   projectSnippedView,
   type SnipEntry,
 } from '../compact/snipCompact.js'
+import {
+  createCachedMCState,
+  getMicrocompactWithCache,
+} from '../compact/cachedMicrocompact.js'
+
+// Module-level cached microcompact state (auto-registered for cleanup)
+const cachedMCState = createCachedMCState()
 
 export interface ConversationBuffers {
   fullMessages: BetaMessageParam[]
@@ -46,6 +53,8 @@ export interface APIMessageProjection {
   didBudgetToolResults: boolean
   didCompact: boolean
   estimatedTokens: number
+  estimatedHeadroom: number
+  headroomRatio: number
   sourceMessageCount: number
   projectedMessageCount: number
 }
@@ -254,7 +263,7 @@ export function projectMessagesForAPI(
     return changed ? { ...msg, content: nextContent } : msg
   })
 
-  const microcompacted = microcompactToolResults(messagesForAPI)
+  const microcompacted = getMicrocompactWithCache(cachedMCState, messagesForAPI)
   const didMicrocompact = microcompacted !== messagesForAPI
   messagesForAPI = microcompacted
 
@@ -289,12 +298,19 @@ export function projectMessagesForAPI(
     }
   }
 
+  const estimatedTokens = estimateTokens(messagesForAPI)
+  const window = getEstimatedContextWindow(options.model)
+  const estimatedHeadroom = Math.max(0, window - estimatedTokens)
+  const headroomRatio = window > 0 ? estimatedHeadroom / window : 0
+
   return {
     messagesForAPI,
     didMicrocompact,
     didBudgetToolResults,
     didCompact,
-    estimatedTokens: estimateTokens(messagesForAPI),
+    estimatedTokens,
+    estimatedHeadroom,
+    headroomRatio,
     sourceMessageCount: fullMessages.length,
     projectedMessageCount: messagesForAPI.length,
   }
@@ -390,7 +406,7 @@ function buildCompactBoundaryMetadata(
     message =>
       message.role === 'assistant' &&
       typeof message.content === 'string' &&
-      message.content.includes('Earlier conversation'),
+      message.content.includes('Compacted'),
   )
   const summaryPreview =
     typeof summaryMessage?.content === 'string'

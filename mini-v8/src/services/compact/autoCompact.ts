@@ -157,7 +157,7 @@ function getCompactBuffer(model?: string): number {
   return Math.max(5000, Math.floor(maxTokens * 0.3))
 }
 
-function getEstimatedContextWindow(model?: string): number {
+export function getEstimatedContextWindow(model?: string): number {
   if (!model) {
     return ESTIMATED_MAX_TOKENS
   }
