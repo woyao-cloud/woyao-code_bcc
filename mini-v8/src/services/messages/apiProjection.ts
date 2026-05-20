@@ -14,6 +14,7 @@ import {
   type ToolResultBudgetState,
 } from '../compact/autoCompact.js'
 import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
+import { trySessionMemoryCompaction } from '../compact/sessionMemoryCompact.js'
 import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 import { restorePersistedToolResult } from '../toolResultStorage.js'
 import {
@@ -280,22 +281,40 @@ export function projectMessagesForAPI(
 
   let didCompact = false
   if (shouldCompact) {
-    const sessionMemorySummary =
-      getSessionMemorySummaryForCompact(activeMessages)
-    const compacted = compactMessages(messagesForAPI, {
-      sessionMemorySummary,
-    })
-    didCompact = compacted !== messagesForAPI
-    messagesForAPI = compacted
+    // Try session memory compaction first (token-aware boundary + persisted notes)
+    const smResult = trySessionMemoryCompaction(messagesForAPI)
+    if (smResult) {
+      didCompact = true
+      messagesForAPI = smResult.messages
 
-    if (didCompact && conversation && options.commitCompactionToConversation) {
-      commitCompactedProjectionToConversation(
-        conversation,
-        fullMessages,
-        activeMessages,
-        compacted,
+      if (conversation && options.commitCompactionToConversation) {
+        commitCompactedProjectionToConversation(
+          conversation,
+          fullMessages,
+          activeMessages,
+          smResult.messages,
+          smResult.summaryText,
+        )
+      }
+    } else {
+      // Fall back to existing heuristic compaction
+      const sessionMemorySummary =
+        getSessionMemorySummaryForCompact(activeMessages)
+      const compacted = compactMessages(messagesForAPI, {
         sessionMemorySummary,
-      )
+      })
+      didCompact = compacted !== messagesForAPI
+      messagesForAPI = compacted
+
+      if (didCompact && conversation && options.commitCompactionToConversation) {
+        commitCompactedProjectionToConversation(
+          conversation,
+          fullMessages,
+          activeMessages,
+          compacted,
+          sessionMemorySummary,
+        )
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import {
   compactMessages,
   needsCompaction,
 } from './autoCompact.js'
+import { trySessionMemoryCompaction } from './sessionMemoryCompact.js'
 import { dropOldestGroups } from './groupByApiRound.js'
 import { runPostCompactCleanup } from './postCompactCleanup.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
@@ -30,6 +31,13 @@ export function reactiveCompact(
   messages: BetaMessageParam[],
   model?: string,
 ): ReactiveCompactResult {
+  // Step 0: Try session memory compaction first (cheapest, best quality)
+  const smResult = trySessionMemoryCompaction(messages)
+  if (smResult) {
+    runPostCompactCleanup()
+    return { didCompact: true, messages: smResult.messages }
+  }
+
   const microcompacted = microcompactToolResults(messages)
   if (microcompacted !== messages) {
     if (!needsCompaction(microcompacted, model)) {

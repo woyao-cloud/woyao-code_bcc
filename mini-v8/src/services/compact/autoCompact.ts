@@ -147,7 +147,7 @@ function estimateContentTokens(content: unknown): number {
   return estimateTextTokens(String(content))
 }
 
-function getCompactBuffer(model?: string): number {
+export function getCompactBuffer(model?: string): number {
   const maxTokens = getEstimatedContextWindow(model)
   if (maxTokens >= 800_000) return COMPACT_BUFFER_LARGE
   if (maxTokens >= 400_000) return COMPACT_BUFFER_MEDIUM
