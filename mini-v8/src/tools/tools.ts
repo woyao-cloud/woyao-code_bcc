@@ -30,8 +30,23 @@ import { VerifyPlanExecutionTool } from './builtin/VerifyPlanExecutionTool/Verif
 import { SendMessageTool } from './builtin/SendMessageTool/SendMessageTool.js'
 import { BriefTool } from './builtin/BriefTool/BriefTool.js'
 import { NotebookEditTool } from './builtin/NotebookEditTool/NotebookEditTool.js'
+import { LSPTool } from './builtin/LSPTool/LSPTool.js'
+import { WebBrowserTool } from './builtin/WebBrowserTool/WebBrowserTool.js'
+import { CronCreateTool } from './builtin/CronCreateTool/CronCreateTool.js'
+import { CronDeleteTool } from './builtin/CronDeleteTool/CronDeleteTool.js'
+import { CronListTool } from './builtin/CronListTool/CronListTool.js'
+import {
+  SearchExtraToolsTool,
+  setToolListProvider,
+} from './builtin/SearchExtraToolsTool/SearchExtraToolsTool.js'
+import {
+  ExecuteTool,
+  setExecuteToolListProvider,
+} from './builtin/ExecuteTool/ExecuteTool.js'
+import { SyntheticOutputTool } from './builtin/SyntheticOutputTool/SyntheticOutputTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
+import { isDeferredTool } from './builtin/SearchExtraToolsTool/prompt.js'
 
 let mcpTools: Tool[] = []
 
@@ -80,12 +95,31 @@ export function getAllBaseTools(): Tool[] {
     SendMessageTool,
     BriefTool,
     NotebookEditTool,
+    LSPTool,
+    WebBrowserTool,
+    CronCreateTool,
+    CronDeleteTool,
+    CronListTool,
+    // Deferred tool discovery
+    SearchExtraToolsTool,
+    ExecuteTool,
+    SyntheticOutputTool,
   ]
 }
 
 export function getTools(): Tool[] {
   return [...getAllBaseTools(), ...mcpTools]
 }
+
+export function getDeferredTools(): Tool[] {
+  return getTools().filter(t => isDeferredTool(t))
+}
+
+// Wire up tool list providers for SearchExtraToolsTool and ExecuteTool.
+// These tools need access to the full tool list at execution time,
+// so we use a provider pattern to avoid circular imports.
+setToolListProvider(() => getTools())
+setExecuteToolListProvider(() => getTools())
 
 export function getToolsMap(): Tools {
   const map = new Map<string, Tool>()
