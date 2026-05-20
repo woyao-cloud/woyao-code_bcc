@@ -16,9 +16,15 @@ import {
 import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
 import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 import { restorePersistedToolResult } from '../toolResultStorage.js'
+import {
+  snipCompactIfNeeded,
+  projectSnippedView,
+  type SnipEntry,
+} from '../compact/snipCompact.js'
 
 export interface ConversationBuffers {
   fullMessages: BetaMessageParam[]
+  messageUuids: string[]
   forceCompactNextProjection: boolean
   toolResultBudgetState: ToolResultBudgetState
   compactBoundaries: CompactBoundaryMetadata[]
@@ -61,6 +67,7 @@ export interface CreateConversationBuffersOptions {
 export interface ConversationBuffersSnapshot {
   forceCompactNextProjection: boolean
   fullMessages: BetaMessageParam[]
+  messageUuids: string[]
   toolResultBudgetRecords: ToolResultBudgetReplacementRecord[]
   compactBoundaries: CompactBoundaryMetadata[]
 }
@@ -78,6 +85,7 @@ export function createConversationBuffers(
 
   return {
     fullMessages: [...initialMessages],
+    messageUuids: initialMessages.map(() => randomUUID()),
     forceCompactNextProjection: options.forceCompactNextProjection ?? false,
     compactBoundaries: options.compactBoundaries
       ? options.compactBoundaries.map(boundary => ({ ...boundary }))
@@ -92,11 +100,55 @@ export function createConversationBuffers(
   }
 }
 
+/**
+ * Push a message to the conversation buffers, auto-generating a UUID.
+ * Returns the generated UUID.
+ */
+export function pushMessageWithUuid(
+  buffers: ConversationBuffers,
+  msg: BetaMessageParam,
+): string {
+  const uuid = randomUUID()
+  buffers.fullMessages.push(msg)
+  buffers.messageUuids.push(uuid)
+  return uuid
+}
+
+/**
+ * Convert conversation buffers to SnipEntry[] for snip processing.
+ */
+export function toSnipEntries(buffers: ConversationBuffers): SnipEntry[] {
+  const entries: SnipEntry[] = []
+  for (let i = 0; i < buffers.fullMessages.length; i++) {
+    entries.push({
+      msg: buffers.fullMessages[i],
+      uuid: buffers.messageUuids[i] ?? randomUUID(),
+    })
+  }
+  return entries
+}
+
+/**
+ * Apply snip result back to conversation buffers (replace messages + uuids).
+ */
+export function applySnipToBuffers(
+  buffers: ConversationBuffers,
+  entries: SnipEntry[],
+): void {
+  buffers.fullMessages.length = 0
+  buffers.messageUuids.length = 0
+  for (const entry of entries) {
+    buffers.fullMessages.push(entry.msg)
+    buffers.messageUuids.push(entry.uuid)
+  }
+}
+
 export function serializeConversationBuffers(
   conversation: ConversationBuffers,
 ): ConversationBuffersSnapshot {
   return {
     fullMessages: cloneMessages(conversation.fullMessages),
+    messageUuids: [...conversation.messageUuids],
     forceCompactNextProjection: conversation.forceCompactNextProjection,
     compactBoundaries: conversation.compactBoundaries.map(boundary => ({
       ...boundary,
@@ -111,6 +163,7 @@ export function clearConversationBuffers(
   conversation: ConversationBuffers,
 ): void {
   conversation.fullMessages.length = 0
+  conversation.messageUuids.length = 0
   conversation.forceCompactNextProjection = false
   conversation.toolResultBudgetState = createToolResultBudgetState()
   conversation.compactBoundaries = []
@@ -148,8 +201,34 @@ export function projectMessagesForAPI(
     fullMessages,
     conversation?.compactBoundaries,
   )
+
+  // Build SnipEntry[] from activeMessages, aligning UUIDs with fullMessages
+  let snipOffset = 0
+  if (conversation) {
+    snipOffset = fullMessages.length - conversation.messageUuids.length
+  }
+  const snipEntries: SnipEntry[] = []
+  for (let i = 0; i < activeMessages.length; i++) {
+    const uuidIdx = snipOffset + i
+    snipEntries.push({
+      msg: activeMessages[i],
+      uuid:
+        conversation && uuidIdx < conversation.messageUuids.length
+          ? conversation.messageUuids[uuidIdx]
+          : randomUUID(),
+    })
+  }
+
   const sourceMessages = cloneMessages(activeMessages)
   let messagesForAPI = sourceMessages
+
+  // Apply snip projection: filter out messages marked by snip_boundary
+  if (conversation) {
+    const snipped = projectSnippedView(snipEntries)
+    if (snipped.length !== activeMessages.length) {
+      messagesForAPI = snipped.map(e => cloneMessages([e.msg])[0])
+    }
+  }
 
   // Restore persisted tool results from disk before projection
   messagesForAPI = messagesForAPI.map(msg => {

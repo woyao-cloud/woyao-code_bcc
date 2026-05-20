@@ -25,6 +25,7 @@ import { registerMcpCommand } from './mcp.js'
 import { registerDoctorCommand } from './doctor.js'
 import { registerPermissionsCommand } from './permissions.js'
 import { registerAddDirCommand } from './addDir.js'
+import { registerForceSnipCommand } from './force-snip.js'
 
 export function initializeCommands(
   persistSnapshot: (conv: ConversationBuffers) => void,
@@ -45,4 +46,5 @@ export function initializeCommands(
   registerDoctorCommand(getMcpEntries)
   registerPermissionsCommand()
   registerAddDirCommand()
+  registerForceSnipCommand()
 }

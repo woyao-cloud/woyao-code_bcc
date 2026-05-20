@@ -4,6 +4,7 @@ import {
   projectMessagesForAPI,
   requestForcedCompaction,
 } from '../services/messages/apiProjection.js'
+import { runPostCompactCleanup } from '../services/compact/postCompactCleanup.js'
 import { resolveModel } from '../utils/model/model.js'
 
 export function registerCompactCommand(
@@ -24,6 +25,7 @@ export function registerCompactCommand(
 
       if (didCompact) {
         requestForcedCompaction(ctx.conversation)
+        runPostCompactCleanup()
         return 'Next API turn will use a compacted projection.'
       }
       if (didBudgetToolResults) {
