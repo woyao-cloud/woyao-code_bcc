@@ -101,7 +101,7 @@ describe('compactMessages', () => {
     expect(compacted[compacted.length - 2].content).toBe('last')
     expect(typeof compacted[1]?.content).toBe('string')
     expect(String(compacted[1]?.content)).toContain(
-      'Earlier conversation summary',
+      'Compacted',
     )
   })
 
@@ -206,21 +206,25 @@ describe('generateCompactionSummary', () => {
   })
 
   test('truncates long messages', () => {
-    const longContent = 'x'.repeat(200)
+    const longContent = 'x'.repeat(300)
     const removed: BetaMessageParam[] = [{ role: 'user', content: longContent }]
     const summary = generateCompactionSummary(removed)
+    // intent slice is 200 chars, so 300-char content gets truncated
+    expect(summary).toContain('xxx')
     expect(summary).not.toContain(longContent)
   })
 
-  test('only includes first 5 user messages', () => {
+  test('only includes last 4 user messages', () => {
     const removed: BetaMessageParam[] = []
     for (let i = 0; i < 10; i++) {
       removed.push({ role: 'user', content: `query${i}` })
       removed.push({ role: 'assistant', content: `response${i}` })
     }
     const summary = generateCompactionSummary(removed)
-    expect(summary).toContain('query0')
-    expect(summary).toContain('query4')
+    // New summary uses slice(-4) for intents
+    expect(summary).toContain('query6')
+    expect(summary).toContain('query9')
+    expect(summary).not.toContain('query0')
   })
 })
 

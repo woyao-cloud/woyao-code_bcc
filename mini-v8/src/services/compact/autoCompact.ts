@@ -7,7 +7,9 @@ import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages
 import { getMaxTokens } from '../../utils/model/model.js'
 import { SESSION_MEMORY_COMPACTION_MARKER } from '../memory/sessionMemory.js'
 
-const TOKEN_LIMIT_RATIO = 0.7
+const COMPACT_BUFFER_LARGE = 50_000 // 800K+ models: keep 50K headroom
+const COMPACT_BUFFER_MEDIUM = 30_000 // 400K+ models: keep 30K headroom
+const COMPACT_BUFFER_SMALL = 20_000 // 200K+ models: keep 20K headroom
 const ESTIMATED_MAX_TOKENS = 100_000
 const MICROCOMPACT_TRIGGER_TOOL_RESULTS = 6
 const MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS = 3
@@ -145,6 +147,16 @@ function estimateContentTokens(content: unknown): number {
   return estimateTextTokens(String(content))
 }
 
+function getCompactBuffer(model?: string): number {
+  const maxTokens = getEstimatedContextWindow(model)
+  if (maxTokens >= 800_000) return COMPACT_BUFFER_LARGE
+  if (maxTokens >= 400_000) return COMPACT_BUFFER_MEDIUM
+  if (maxTokens >= 200_000) return COMPACT_BUFFER_SMALL
+  // For smaller / unknown models, use proportional buffer (~30% of window)
+  // so compaction triggers at ~70% of context, matching the original heuristic
+  return Math.max(5000, Math.floor(maxTokens * 0.3))
+}
+
 function getEstimatedContextWindow(model?: string): number {
   if (!model) {
     return ESTIMATED_MAX_TOKENS
@@ -248,7 +260,9 @@ export function needsCompaction(
   model?: string,
 ): boolean {
   const tokens = estimateTokens(messages)
-  return tokens > getEstimatedContextWindow(model) * TOKEN_LIMIT_RATIO
+  const window = getEstimatedContextWindow(model)
+  const buffer = getCompactBuffer(model)
+  return tokens > window - buffer
 }
 
 /**
@@ -309,24 +323,62 @@ function buildSessionMemoryCompactionSummary(
 }
 
 /**
- * Generate a compaction summary for the removed messages.
+ * Generate a semantic compaction summary for the removed messages.
+ * Extracts user intents, tool usage, and assistant decisions.
  */
 export function generateCompactionSummary(removed: BetaMessageParam[]): string {
   if (removed.length === 0) return ''
 
   const userMessages = removed.filter(m => m.role === 'user')
-  const summaries = userMessages.slice(0, 5).map(m => {
-    const content = typeof m.content === 'string' ? m.content : ''
-    return '- ' + content.slice(0, 100)
-  })
+  const assistantMessages = removed.filter(m => m.role === 'assistant')
 
-  return (
-    '[Earlier conversation summary: ' +
-    removed.length +
-    ' messages covering: ' +
-    summaries.join('; ') +
-    ']'
-  )
+  // Collect unique tool names used in removed span
+  const toolCalls = new Set<string>()
+  for (const msg of removed) {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
+    for (const block of msg.content) {
+      if (isToolUseBlock(block)) toolCalls.add(block.name)
+    }
+  }
+
+  // Extract user intents: last 4 user messages, first 200 chars each
+  const intents = userMessages
+    .slice(-4)
+    .map(m => {
+      const content = typeof m.content === 'string' ? m.content : ''
+      return content.slice(0, 200).trim()
+    })
+    .filter(Boolean)
+
+  // Extract assistant decisions: sentences with decision keywords
+  const decisions = assistantMessages
+    .slice(-3)
+    .map(m => {
+      const text = typeof m.content === 'string' ? m.content : ''
+      const match = text.match(/(?:I'?ll|Let's|We should|The plan is)[^.]*\./gi)
+      return match ? match.slice(0, 2).join('; ') : ''
+    })
+    .filter(Boolean)
+
+  const parts: string[] = [
+    `[Compacted ${removed.length} messages:`,
+    `${userMessages.length} user requests, ${assistantMessages.length} assistant responses`,
+  ]
+
+  if (toolCalls.size > 0) {
+    parts.push(`tools: ${[...toolCalls].join(', ')}`)
+  }
+
+  if (intents.length > 0) {
+    parts.push(`requests: ${intents.join(' | ')}`)
+  }
+
+  if (decisions.length > 0) {
+    parts.push(`decisions: ${decisions.join(' | ')}`)
+  }
+
+  parts.push(']')
+  return parts.join('\n')
 }
 
 /**

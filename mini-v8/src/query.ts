@@ -356,7 +356,22 @@ export async function* query(
       }
     }
 
-    messages.push({ role: 'user', content: toolResults })
+    // Persist large tool results to disk to reduce memory and session size
+    const persistedResults = toolResults.map(tr => {
+      const raw = tr as unknown as Record<string, unknown>
+      if (
+        raw.content &&
+        typeof raw.content === 'string' &&
+        !raw.is_error
+      ) {
+        const persisted = persistLargeToolResult(raw.content)
+        if (persisted !== raw.content) {
+          return { ...tr, content: persisted } as typeof tr
+        }
+      }
+      return tr
+    })
+    messages.push({ role: 'user', content: persistedResults })
     yield {
       type: 'turn_end',
       turnCount: turnLimitManager.getTurnCount(),

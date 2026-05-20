@@ -33,7 +33,7 @@ export interface SessionMemoryPromptOptions {
 export type SessionMemoryPromptMode = 'never' | 'auto' | 'always'
 
 const DEFAULT_CONFIG: SessionMemoryConfig = {
-  enabled: false,
+  enabled: true,
   minTokensForInit: 2000,
   minTokensBetweenUpdate: 1000,
   maxNotes: 30,

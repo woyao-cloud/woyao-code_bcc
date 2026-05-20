@@ -15,6 +15,7 @@ import {
 } from '../compact/autoCompact.js'
 import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
 import { invalidateSystemContextCache } from '../context/contextCacheState.js'
+import { restorePersistedToolResult } from '../toolResultStorage.js'
 
 export interface ConversationBuffers {
   fullMessages: BetaMessageParam[]
@@ -149,6 +150,30 @@ export function projectMessagesForAPI(
   )
   const sourceMessages = cloneMessages(activeMessages)
   let messagesForAPI = sourceMessages
+
+  // Restore persisted tool results from disk before projection
+  messagesForAPI = messagesForAPI.map(msg => {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
+    let changed = false
+    const nextContent = msg.content.map(block => {
+      if (
+        typeof block === 'object' &&
+        block !== null &&
+        (block as Record<string, unknown>).type === 'tool_result'
+      ) {
+        const tr = block as Record<string, unknown>
+        if (typeof tr.content === 'string') {
+          const restored = restorePersistedToolResult(tr.content)
+          if (restored !== tr.content) {
+            changed = true
+            return { ...tr, content: restored }
+          }
+        }
+      }
+      return block
+    })
+    return changed ? { ...msg, content: nextContent } : msg
+  })
 
   const microcompacted = microcompactToolResults(messagesForAPI)
   const didMicrocompact = microcompacted !== messagesForAPI

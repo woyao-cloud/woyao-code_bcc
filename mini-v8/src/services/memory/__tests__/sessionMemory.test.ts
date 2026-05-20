@@ -40,18 +40,18 @@ describe('initSession', () => {
 describe('getSessionMemoryConfig', () => {
   test('returns default config when disabled', () => {
     const config = getSessionMemoryConfig()
-    expect(config.enabled).toBe(false)
+    expect(config.enabled).toBe(true)
     expect(config.maxNotes).toBe(30)
   })
 })
 
 describe('setSessionMemoryConfig', () => {
   test('updates config', () => {
-    setSessionMemoryConfig({ enabled: true, maxNotes: 50 })
+    setSessionMemoryConfig({ enabled: false, maxNotes: 50 })
     const config = getSessionMemoryConfig()
-    expect(config.enabled).toBe(true)
+    expect(config.enabled).toBe(false)
     expect(config.maxNotes).toBe(50)
-    setSessionMemoryConfig({ enabled: false, maxNotes: 30 })
+    setSessionMemoryConfig({ enabled: true, maxNotes: 30 })
   })
 })
 

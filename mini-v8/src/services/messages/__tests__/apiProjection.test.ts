@@ -61,7 +61,7 @@ describe('projectMessagesForAPI', () => {
     expect(projection.didCompact).toBe(true)
     expect(projection.projectedMessageCount).toBeGreaterThan(0)
     expect(String(projection.messagesForAPI[1]?.content)).toContain(
-      'Earlier conversation',
+      'Compacted',
     )
     expect(JSON.stringify(fullMessages)).toBe(fullSnapshot)
     expect(fullMessages.length).toBe(8)
