@@ -19,6 +19,16 @@ export interface ToolExecutionResult {
   error?: string
 }
 
+export interface ToolExecutionHooks {
+  onBeforeExecute?: (id: string, name: string) => void
+  onAfterExecute?: (
+    id: string,
+    name: string,
+    result: ToolExecutionResult,
+  ) => void
+  onError?: (id: string, name: string, error: Error) => void
+}
+
 export interface BuildToolContextOptions {
   abortSignal?: AbortSignal
   isInteractive?: boolean
@@ -73,21 +83,54 @@ export async function executeSingleTool(
   tool: Tool,
   request: ToolExecutionRequest,
   ctx: ToolUseContext,
+  hooks?: ToolExecutionHooks,
 ): Promise<ToolExecutionResult> {
-  const result: ToolResult = await tool.execute(ctx, request.input)
-  const content = persistLargeToolResult(result.content)
+  hooks?.onBeforeExecute?.(request.id, request.name)
+  try {
+    const result: ToolResult = await tool.execute(ctx, request.input)
+    const content = persistLargeToolResult(result.content)
 
+    const execResult: ToolExecutionResult = {
+      id: request.id,
+      name: request.name,
+      success: result.success,
+      content,
+      error: result.error,
+      toolResult: {
+        type: 'tool_result',
+        tool_use_id: request.id,
+        content,
+        is_error: !result.success,
+      },
+    }
+    hooks?.onAfterExecute?.(request.id, request.name, execResult)
+    return execResult
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err : new Error(String(err))
+    hooks?.onError?.(request.id, request.name, error)
+    throw error
+  }
+}
+
+/**
+ * Format a tool error result for cases where tool execution can't proceed
+ * (unknown tool, permission denied, cancelled).
+ */
+export function formatToolErrorResult(
+  request: ToolExecutionRequest,
+  errorMsg: string,
+): ToolExecutionResult {
   return {
     id: request.id,
     name: request.name,
-    success: result.success,
-    content,
-    error: result.error,
+    success: false,
+    content: errorMsg,
+    error: errorMsg,
     toolResult: {
       type: 'tool_result',
       tool_use_id: request.id,
-      content,
-      is_error: !result.success,
+      content: errorMsg,
+      is_error: true,
     },
   }
 }

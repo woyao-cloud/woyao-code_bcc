@@ -71,6 +71,7 @@ import {
   loadConversationSnapshot,
   loadLatestConversationSnapshot,
   saveConversationSnapshot,
+  normalizeMessages,
   type PersistedSessionSnapshot,
 } from '../services/session/sessionStore.js'
 
@@ -519,7 +520,9 @@ function createConversationFromSnapshot(
     return createConversationBuffers()
   }
 
-  const buffers = createConversationBuffers(snapshot.conversation.fullMessages, {
+  // Normalize messages to remove orphaned tool_results, empty messages, etc.
+  const normalizedMessages = normalizeMessages(snapshot.conversation.fullMessages)
+  const buffers = createConversationBuffers(normalizedMessages, {
     compactBoundaries: snapshot.conversation.compactBoundaries,
     forceCompactNextProjection:
       snapshot.conversation.forceCompactNextProjection,

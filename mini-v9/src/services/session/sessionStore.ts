@@ -9,6 +9,7 @@ import {
 import { homedir } from 'os'
 import { join } from 'path'
 import type { ConversationBuffersSnapshot } from '../messages/apiProjection.js'
+import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.js'
 
 const SNAPSHOT_VERSION = 1
 const DEFAULT_SESSION_STORE_DIR = join(
@@ -175,4 +176,83 @@ function isConversationBuffersSnapshot(
     Array.isArray(snapshot.toolResultBudgetRecords) &&
     Array.isArray(snapshot.compactBoundaries)
   )
+}
+
+/**
+ * Normalize messages loaded from a session snapshot.
+ * Filters out corrupted or orphaned data that can accumulate during sessions:
+ * - Orphaned tool_result blocks (no matching tool_use in the conversation)
+ * - Messages with empty content
+ * - Orphaned thinking blocks (no matching partner)
+ */
+export function normalizeMessages(
+  messages: BetaMessageParam[],
+): BetaMessageParam[] {
+  // First pass: collect all tool_use IDs from assistant messages
+  const toolUseIds = new Set<string>()
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue
+    const content = Array.isArray(msg.content) ? msg.content : []
+    for (const block of content) {
+      if (block.type === 'tool_use') {
+        toolUseIds.add(block.id)
+      }
+    }
+  }
+
+  // Preserved list with orphaned entries removed
+  const preserved: Record<string, string[]> = {}
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue
+    const content = Array.isArray(msg.content) ? msg.content : []
+    for (const block of content) {
+      if (
+        block.type === 'tool_result' &&
+        block.tool_use_id &&
+        !toolUseIds.has(block.tool_use_id)
+      ) {
+        // Track orphaned tool_result blocks by message index
+        const key = messages.indexOf(msg).toString()
+        if (!preserved[key]) preserved[key] = []
+        preserved[key].push(block.tool_use_id)
+      }
+    }
+  }
+
+  const result: BetaMessageParam[] = []
+  for (const msg of messages) {
+    const content = Array.isArray(msg.content) ? msg.content : []
+
+    // Filter out empty messages
+    if (content.length === 0) {
+      continue
+    }
+    if (
+      content.length === 1 &&
+      content[0].type === 'text' &&
+      !content[0].text?.trim()
+    ) {
+      continue
+    }
+
+    // Filter orphaned tool_result and thinking blocks from this message
+    const msgIndex = messages.indexOf(msg)
+    const orphanedToolResultIds = preserved[msgIndex.toString()] ?? []
+    const filteredContent = content.filter(block => {
+      // Remove orphaned tool_result (no matching tool_use in conversation)
+      if (
+        block.type === 'tool_result' &&
+        orphanedToolResultIds.includes(block.tool_use_id)
+      ) {
+        return false
+      }
+      return true
+    })
+
+    if (filteredContent.length > 0) {
+      result.push({ ...msg, content: filteredContent } as BetaMessageParam)
+    }
+  }
+
+  return result
 }

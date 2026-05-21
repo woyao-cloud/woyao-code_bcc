@@ -18,6 +18,8 @@ import { resolveOpenAIModel } from './openai/modelMap.js'
 import { streamGeminiAPI, getGeminiConfig } from './gemini/client.js'
 import { geminiToAnthropicStream } from './gemini/streamAdapter.js'
 import { resolveGeminiModel } from './gemini/modelMap.js'
+import { classifyAPIError } from '../retry.js'
+import type { ErrorCategory } from '../retry.js'
 
 // ============================================================
 // API Client for mini-v5 (Anthropic + OpenAI)
@@ -161,6 +163,24 @@ export async function* streamClaudeAPI(
     for await (const event of stream) {
       yield event
     }
+  }
+}
+
+/**
+ * Streaming API call with error classification.
+ * Wraps streamClaudeAPI and attaches error category metadata on failure.
+ * Useful for consumers that handle retry externally and want classification.
+ */
+export async function* streamWithErrorClassification(
+  params: QueryParams,
+): AsyncGenerator<BetaRawMessageStreamEvent> {
+  try {
+    yield* streamClaudeAPI(params)
+  } catch (err: unknown) {
+    const category = classifyAPIError(err)
+    const enhanced = err instanceof Error ? err : new Error(String(err))
+    ;(enhanced as unknown as Record<string, unknown>).errorCategory = category
+    throw enhanced
   }
 }
 

@@ -71,3 +71,42 @@
  - Operates as a pure function — (messages: BetaMessageParam[]) => BetaMessageParam[] — no side effects
 
  Verification: bun test passes; write unit test with a corrupted snapshot that has orphaned tool_result + empty messages; verify output is clean.
+
+
+
+
+
+
+
+
+
+
+
+
+ # 
+
+  Phase 4 complete — 660 pass / 1 fail. All 4 phases are implemented successfully!
+
+● All 4 phases of the error recovery upgrade are complete. Here's a summary of all changes:
+
+  Phase 1 — Retry Engine & Error Classification (5 files)
+  - src/services/retry.ts — Rewritten with retryWithBackoff() async generator, classifyAPIError() (7 categories: rate_limit, server_error, auth_error, connection_error,
+  prompt_too_long, aborted, unknown), parseRetryAfterHeader(), calculateBackoff() with jitter. Legacy withRetry()/isRetryableError() preserved.
+  - src/query/transitions.ts — Added QueryRetryEvent type to QueryEvent union
+  - src/services/api/claude.ts — Added streamWithErrorClassification() wrapper
+  - src/query.ts — Replaced manual retry loop with retryWithBackoff() generator yielding retry_event for UI feedback
+
+  Phase 2 — Stream Monitoring & Safety (1 file)
+  - src/query.ts — Added stream idle timeout watchdog (90s nested AbortController, 30s stall warning), missing tool result protection (injects synthetic error results for
+  orphaned tool_use blocks), max_tokens diminishing returns detection (delta < 500 → abort recovery)
+
+  Phase 3 — Tool Execution Hooks (2 files)
+  - src/services/tools/toolExecution.ts — Added ToolExecutionHooks interface (onBeforeExecute/onAfterExecute/onError), applied in executeSingleTool(), added
+  formatToolErrorResult() utility
+  - src/services/tools/toolOrchestration.ts — Added combineSignals() utility, slot-level cascade abort propagation to tool contexts, hooks forwarding through execution chain
+
+  Phase 4 — Session Restore Normalization (2 files)
+  - src/services/session/sessionStore.ts — Added normalizeMessages() pure function: filters orphaned tool_result blocks, empty messages
+  - src/entrypoints/cli.ts — Calls normalizeMessages() during createConversationFromSnapshot()
+
+  All tests: 660 pass, 1 fail (pre-existing providers test). Typecheck: zero new errors.

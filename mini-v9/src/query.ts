@@ -2,7 +2,8 @@ import { streamClaudeAPI } from './services/api/claude.js'
 import { resolveModel } from './utils/model/model.js'
 import { getPermissionMode } from './utils/settings/settings.js'
 import { requestPermission } from './services/permission/permissionManager.js'
-import { isRetryableError } from './services/retry.js'
+import { retryWithBackoff } from './services/retry.js'
+import type { RetryEvent } from './services/retry.js'
 import { logError, logInfo, logWarning, logDebug, logTiming } from './utils/log.js'
 import { createDefaultTurnLimitManager } from './utils/turnLimit.js'
 import {
@@ -59,6 +60,7 @@ export async function* query(
   const conversation: ConversationBuffers = createConversationBuffers(messages)
   let hasAttemptedReactiveCompact = false
   let recoveryCount = 0
+  let lastMaxTokensOutputTokens = 0
   const DEFAULT_MAX_TOKENS = 32000
   const ESCALATED_MAX_TOKENS = 64000
 
@@ -128,27 +130,78 @@ export async function* query(
     let streamComplete = false
     let stopReason: string | null = null
 
-    // Stream processing with real-time text yield.
-    // Uses a manual retry loop for transient network errors.
+    // Stream processing with retryWithBackoff for transient errors.
+    // Yields retry_event for UI feedback, then processes stream events.
     let streamError: Error | null = null
-    for (let attempt = 0; attempt <= 1; attempt++) {
-      if (attempt > 0) {
-        await new Promise(r => setTimeout(r, 1000))
-      }
-      try {
-        const stream = streamClaudeAPI({
-          messages: messagesForAPI,
-          systemPrompt: fullSystemPrompt,
-          tools,
-          model: activeModel,
-          maxTokens:
-            recoveryCount > 0 ? ESCALATED_MAX_TOKENS : DEFAULT_MAX_TOKENS,
-        })
+    try {
+      const retryGen = retryWithBackoff(
+        async function* () {
+          // Stream watchdog: nested AbortController for idle timeout
+          const innerAbort = new AbortController()
+          options.abortSignal?.addEventListener?.('abort', () => innerAbort.abort(), { once: true })
 
-        for await (const event of stream) {
-          if (options.abortSignal?.aborted) break
-          const evt = event as BetaRawMessageStreamEvent
-          switch (evt.type) {
+          const stream = streamClaudeAPI({
+            messages: messagesForAPI,
+            systemPrompt: fullSystemPrompt,
+            tools,
+            model: activeModel,
+            maxTokens:
+              recoveryCount > 0 ? ESCALATED_MAX_TOKENS : DEFAULT_MAX_TOKENS,
+            signal: innerAbort.signal,
+          })
+
+          let lastActivity = Date.now()
+          let watchdogTimedOut = false
+          let stallWarned = false
+          const STALL_WARN_MS = 30000
+          const IDLE_TIMEOUT_MS = 90000
+
+          const watchdogTimer = setInterval(() => {
+            const elapsed = Date.now() - lastActivity
+            if (elapsed >= IDLE_TIMEOUT_MS) {
+              watchdogTimedOut = true
+              innerAbort.abort()
+            } else if (elapsed >= STALL_WARN_MS && !stallWarned) {
+              stallWarned = true
+              process.stderr.write('\n  [Warning] Stream stalled: no data for 30s\n')
+            }
+          }, 5000)
+
+          try {
+            for await (const event of stream) {
+              lastActivity = Date.now()
+              stallWarned = false
+              yield event
+            }
+          } catch (err: unknown) {
+            if (watchdogTimedOut) {
+              throw new Error('Stream idle timeout: no data for 90s')
+            }
+            throw err
+          } finally {
+            clearInterval(watchdogTimer)
+          }
+        },
+        { maxRetries: 2 },
+      )
+
+      for await (const item of retryGen) {
+        if ((item as RetryEvent).type === 'retry') {
+          const re = item as RetryEvent
+          yield {
+            type: 'retry_event',
+            attempt: re.attempt,
+            maxRetries: re.maxRetries,
+            error: re.error,
+            category: re.category,
+            delayMs: re.delayMs,
+          }
+          continue
+        }
+
+        if (options.abortSignal?.aborted) break
+        const evt = item as BetaRawMessageStreamEvent
+        switch (evt.type) {
             case 'content_block_start': {
               const block = evt.content_block
               if (block.type === 'tool_use') {
@@ -199,18 +252,12 @@ export async function* query(
               }
               break
             }
-          }
         }
-        streamComplete = true
-        streamError = null
-        break // success, exit retry loop
-      } catch (err: unknown) {
-        streamError = err instanceof Error ? err : new Error(String(err))
-        if (attempt < 1 && isRetryableError(streamError)) {
-          continue // retry
-        }
-        break // non-retryable or exhausted retries
       }
+      streamComplete = true
+      streamError = null
+    } catch (err: unknown) {
+      streamError = err instanceof Error ? err : new Error(String(err))
     }
 
     if (streamError) {
@@ -286,11 +333,34 @@ export async function* query(
     }
 
     // max_output_tokens recovery: model was cut off mid-response
+    // Includes diminishing returns detection: if delta < 500 tokens, stop recovery
     if (
       stopReason === 'max_tokens' &&
       recoveryCount < 3 &&
       toolUses.length === 0
     ) {
+      // Diminishing returns: token delta too small, model can't make progress
+      if (lastMaxTokensOutputTokens > 0) {
+        const delta = totalOutputTokens - lastMaxTokensOutputTokens
+        if (delta < 500) {
+          logWarning('max_tokens diminishing returns detected, stopping recovery', { delta })
+          yield {
+            type: 'turn_end',
+            turnCount: turnLimitManager.getTurnCount(),
+            toolUseCount: 0,
+          }
+          yield {
+            type: 'terminal',
+            reason: 'completed',
+            turnCount: turnLimitManager.getTurnCount(),
+            totalInputTokens,
+            totalOutputTokens,
+          }
+          return
+        }
+      }
+      lastMaxTokensOutputTokens = totalOutputTokens
+
       const partialContent: ContentItem[] = contentBlocks.map(b =>
         b.type === 'tool_use'
           ? {
@@ -427,6 +497,36 @@ export async function* query(
         success: !raw.is_error,
         content,
         isError: raw.is_error === true,
+      }
+    }
+
+    // Missing tool result protection: inject synthetic error results
+    // for tool_use blocks that didn't receive a corresponding tool_result
+    const resultUseIds = new Set(
+      toolResults.map(tr => {
+        const raw = tr as unknown as Record<string, unknown>
+        return raw.tool_use_id as string
+      }),
+    )
+    for (const tu of toolUses) {
+      if (!resultUseIds.has(tu.id)) {
+        const syntheticContent = `Tool result missing for ${tu.name}. Execution was interrupted.`
+        const syntheticResult = {
+          type: 'tool_result' as const,
+          tool_use_id: tu.id,
+          content: syntheticContent,
+          is_error: true,
+        }
+        toolResults.push(syntheticResult as ContentItem)
+        yield {
+          type: 'tool_result' as const,
+          id: tu.id,
+          name: tu.name,
+          success: false,
+          content: syntheticContent,
+          isError: true,
+        }
+        logWarning(`Missing tool result injected: ${tu.name}`, { toolUseId: tu.id })
       }
     }
 

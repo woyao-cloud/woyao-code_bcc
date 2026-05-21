@@ -61,6 +61,15 @@ export interface QueryRecovery {
   attempt: number
 }
 
+export interface QueryRetryEvent {
+  readonly type: 'retry_event'
+  attempt: number
+  maxRetries: number
+  error: string
+  category: string
+  delayMs: number
+}
+
 export type QueryEvent =
   | QueryTextDelta
   | QueryToolStart
@@ -70,3 +79,4 @@ export type QueryEvent =
   | QueryTerminal
   | QueryError
   | QueryRecovery
+  | QueryRetryEvent

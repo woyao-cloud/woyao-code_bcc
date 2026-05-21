@@ -3,11 +3,13 @@ import type { ToolUseContext } from '../../Tool.js'
 import type {
   ToolExecutionRequest,
   ToolExecutionResult,
+  ToolExecutionHooks,
 } from './toolExecution.js'
 import {
   checkToolPermission,
   buildToolContext,
   executeSingleTool,
+  formatToolErrorResult,
 } from './toolExecution.js'
 import type { ContentItem } from '../../types/message.js'
 
@@ -43,6 +45,7 @@ export async function buildOrchestratedToolUses(
     ) => Promise<boolean>
     abortSignal?: AbortSignal
     isInteractive?: boolean
+    hooks?: ToolExecutionHooks
   },
 ): Promise<{
   tools: OrchestratedToolUse[]
@@ -120,32 +123,65 @@ function partitionTools(tools: OrchestratedToolUse[]): {
 }
 
 /**
+ * Combine two AbortSignals into a single signal.
+ * If either signal aborts, the combined signal aborts.
+ */
+function combineSignals(
+  ...signals: (AbortSignal | undefined)[]
+): AbortSignal {
+  const controller = new AbortController()
+  for (const signal of signals) {
+    if (!signal) continue
+    if (signal.aborted) {
+      controller.abort(signal.reason)
+      return controller.signal
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), {
+      once: true,
+    })
+  }
+  return controller.signal
+}
+
+/**
  * Execute tools using a slot-based concurrent queue.
  * When a destructive tool (e.g., Bash) errors, remaining in-flight
  * concurrent siblings are cancelled to prevent cascading failures.
+ * Slot-level abort signals are propagated to tool execution contexts
+ * so running tools can detect cancellation.
  */
 async function runConcurrentWithSlots(
   tools: OrchestratedToolUse[],
   maxSlots: number,
+  hooks?: ToolExecutionHooks,
 ): Promise<{ toolResults: ContentItem[]; results: ToolExecutionResult[] }> {
   const toolResults: ContentItem[] = []
   const results: ToolExecutionResult[] = []
   let index = 0
   let errorCascaded = false
-  const abortController = new AbortController()
+  const cascadeAbortController = new AbortController()
 
   async function workSlot(): Promise<void> {
     while (index < tools.length && !errorCascaded) {
       const slot = index++
       const t = tools[slot]
-      const r = await executeSingleTool(t.tool, t.request, t.ctx)
+
+      // Merge the cascade abort signal into the tool context so running tools
+      // can detect cancellation when a destructive sibling fails.
+      const mergedSignal = combineSignals(
+        t.ctx.abortSignal,
+        cascadeAbortController.signal,
+      )
+      const ctxWithSlotAbort = { ...t.ctx, abortSignal: mergedSignal }
+
+      const r = await executeSingleTool(t.tool, t.request, ctxWithSlotAbort, hooks)
       toolResults.push(r.toolResult)
       results.push(r)
 
       // Cascade: if a destructive tool errors, cancel siblings
       if (!r.success && isDestructive(t)) {
         errorCascaded = true
-        abortController.abort()
+        cascadeAbortController.abort()
       }
     }
   }
@@ -162,20 +198,9 @@ async function runConcurrentWithSlots(
     while (index < tools.length) {
       const t = tools[index++]
       const msg = 'Cancelled due to sibling tool error'
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: t.request.id,
-        content: msg,
-        is_error: true,
-      })
-      results.push({
-        id: t.request.id,
-        name: t.request.name,
-        success: false,
-        content: msg,
-        error: msg,
-        toolResult: toolResults[toolResults.length - 1],
-      })
+      const errorResult = formatToolErrorResult(t.request, msg)
+      toolResults.push(errorResult.toolResult)
+      results.push(errorResult)
     }
   }
 
@@ -193,6 +218,7 @@ export async function orchestrateToolExecution(
     ) => Promise<boolean>
     abortSignal?: AbortSignal
     isInteractive?: boolean
+    hooks?: ToolExecutionHooks
   },
 ): Promise<OrchestrationResult> {
   const { tools, unknownTools, deniedTools } = await buildOrchestratedToolUses(
@@ -240,17 +266,20 @@ export async function orchestrateToolExecution(
 
   const { concurrent, serial } = partitionTools(tools)
 
+  const hooks = options?.hooks
+
   if (concurrent.length > 0) {
     const { toolResults: cr, results: r } = await runConcurrentWithSlots(
       concurrent,
       MAX_CONCURRENCY,
+      hooks,
     )
     toolResults.push(...cr)
     allResults.push(...r)
   }
 
   for (const t of serial) {
-    const r = await executeSingleTool(t.tool, t.request, t.ctx)
+    const r = await executeSingleTool(t.tool, t.request, t.ctx, hooks)
     toolResults.push(r.toolResult)
     allResults.push(r)
   }
