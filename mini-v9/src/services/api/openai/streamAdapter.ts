@@ -5,6 +5,7 @@
 
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { OpenAIStreamChunk } from './client.js'
+import { logDebug, logWarning } from '../../../utils/log.js'
 
 /**
  * Extract text content from various OpenAI content formats.
@@ -49,12 +50,18 @@ export async function* openAIToAnthropicStream(
   >()
   let currentTextBlockIndex = -1
   let hasStartedTextBlock = false
+  let chunkCount = 0
 
   for await (const chunk of openAIStream) {
+    chunkCount++
     const choice = chunk.choices?.[0]
-    if (!choice) continue
+    if (!choice) {
+      logDebug(`OpenAI chunk ${chunkCount}: no choices, chunk=${JSON.stringify(chunk).substring(0, 200)}`)
+      continue
+    }
 
     const delta = choice.delta
+    logDebug(`OpenAI chunk ${chunkCount}: delta=${JSON.stringify(delta).substring(0, 300)}`)
 
     // Handle text content
     if (delta.content !== undefined && delta.content !== null) {
