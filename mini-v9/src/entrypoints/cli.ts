@@ -19,6 +19,7 @@ import {
   isOpenAIProvider,
   detectOllama,
   setAutoDetectedProvider,
+  isOllamaAutoDetected,
 } from '../utils/model/providers.js'
 import { initializeTaskStore } from '../services/taskStore.js'
 import {
@@ -121,10 +122,18 @@ async function main() {
   process.stderr.write(`Using API provider: ${provider}\n`)
   const apiKey = getAPIKey()
 
-  // Only require API key for non-Ollama providers
-  if (!apiKey && provider !== 'openai') {
-    process.stderr.write('Error: ANTHROPIC_API_KEY not set\n')
-    process.exit(1)
+  // Check API key requirements based on provider
+  if (!apiKey) {
+    if (provider === 'firstParty') {
+      process.stderr.write('Error: ANTHROPIC_API_KEY not set\n')
+      process.exit(1)
+    } else if (provider === 'openai' && !isOllamaAutoDetected()) {
+      process.stderr.write('Error: OPENAI_API_KEY not set\n')
+      process.exit(1)
+    } else if (provider === 'gemini') {
+      process.stderr.write('Error: GEMINI_API_KEY not set\n')
+      process.exit(1)
+    }
   }
 
   // Load config
@@ -262,9 +271,7 @@ async function runREPL(
       continue
     }
 
-    conversation.fullMessages.push({ role: 'user', content: line })
-    persistConversationSnapshot(conversation)
-    await runConversationTurn(engine, conversation, tools)
+    await runConversationTurn(engine, conversation, tools, line)
   }
 }
 

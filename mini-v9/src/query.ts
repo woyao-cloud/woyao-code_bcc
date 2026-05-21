@@ -2,7 +2,7 @@ import { streamClaudeAPI } from './services/api/claude.js'
 import { resolveModel } from './utils/model/model.js'
 import { getPermissionMode } from './utils/settings/settings.js'
 import { requestPermission } from './services/permission/permissionManager.js'
-import { withRetry, isRetryableError } from './services/retry.js'
+import { isRetryableError } from './services/retry.js'
 import { logError } from './utils/log.js'
 import { createDefaultTurnLimitManager } from './utils/turnLimit.js'
 import {
@@ -109,82 +109,92 @@ export async function* query(
     let streamComplete = false
     let stopReason: string | null = null
 
-    try {
-      await withRetry(
-        async () => {
-          const stream = streamClaudeAPI({
-            messages: messagesForAPI,
-            systemPrompt: fullSystemPrompt,
-            tools,
-            model: activeModel,
-            maxTokens:
-              recoveryCount > 0 ? ESCALATED_MAX_TOKENS : DEFAULT_MAX_TOKENS,
-          })
+    // Stream processing with real-time text yield.
+    // Uses a manual retry loop for transient network errors.
+    let streamError: Error | null = null
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      if (attempt > 0) {
+        await new Promise(r => setTimeout(r, 1000))
+      }
+      try {
+        const stream = streamClaudeAPI({
+          messages: messagesForAPI,
+          systemPrompt: fullSystemPrompt,
+          tools,
+          model: activeModel,
+          maxTokens:
+            recoveryCount > 0 ? ESCALATED_MAX_TOKENS : DEFAULT_MAX_TOKENS,
+        })
 
-          for await (const event of stream) {
-            if (options.abortSignal?.aborted) break
-            const evt = event as BetaRawMessageStreamEvent
-            switch (evt.type) {
-              case 'content_block_start': {
-                const block = evt.content_block
-                if (block.type === 'tool_use') {
-                  const tu = {
-                    id: block.id,
-                    name: block.name,
-                    input: (block.input as Record<string, unknown>) || {},
-                  }
-                  toolUses.push(tu)
-                  contentBlocks.push({
-                    type: 'tool_use',
-                    id: tu.id,
-                    name: tu.name,
-                    input: tu.input,
-                  })
-                } else if (block.type === 'text') {
-                  contentBlocks.push({ type: 'text', text: '' })
+        for await (const event of stream) {
+          if (options.abortSignal?.aborted) break
+          const evt = event as BetaRawMessageStreamEvent
+          switch (evt.type) {
+            case 'content_block_start': {
+              const block = evt.content_block
+              if (block.type === 'tool_use') {
+                const tu = {
+                  id: block.id,
+                  name: block.name,
+                  input: (block.input as Record<string, unknown>) || {},
                 }
-                break
+                toolUses.push(tu)
+                contentBlocks.push({
+                  type: 'tool_use',
+                  id: tu.id,
+                  name: tu.name,
+                  input: tu.input,
+                })
+              } else if (block.type === 'text') {
+                contentBlocks.push({ type: 'text', text: '' })
               }
-              case 'content_block_delta': {
-                const delta = evt.delta
-                if (delta.type === 'text_delta') {
-                  const lb = contentBlocks[contentBlocks.length - 1]
-                  if (lb && lb.type === 'text') {
-                    lb.text += delta.text
-                    fullText += delta.text
-                    textDeltas.push(delta.text)
-                  }
-                } else if (delta.type === 'input_json_delta') {
-                  const lt = toolUses[toolUses.length - 1]
-                  if (lt) {
-                    lt.input = {
-                      ...lt.input,
-                      ...safeJsonMerge(lt.input, delta.partial_json),
-                    }
+              break
+            }
+            case 'content_block_delta': {
+              const delta = evt.delta
+              if (delta.type === 'text_delta') {
+                // Yield text in real-time during streaming
+                yield { type: 'text_delta' as const, text: delta.text }
+                const lb = contentBlocks[contentBlocks.length - 1]
+                if (lb && lb.type === 'text') {
+                  lb.text += delta.text
+                  fullText += delta.text
+                  textDeltas.push(delta.text)
+                }
+              } else if (delta.type === 'input_json_delta') {
+                const lt = toolUses[toolUses.length - 1]
+                if (lt) {
+                  lt.input = {
+                    ...lt.input,
+                    ...safeJsonMerge(lt.input, delta.partial_json),
                   }
                 }
-                break
               }
-              case 'message_delta': {
-                totalInputTokens += evt.usage?.input_tokens ?? 0
-                totalOutputTokens += evt.usage.output_tokens
-                if (evt.delta?.stop_reason) {
-                  stopReason = evt.delta.stop_reason
-                }
-                break
+              break
+            }
+            case 'message_delta': {
+              totalInputTokens += evt.usage?.input_tokens ?? 0
+              totalOutputTokens += evt.usage.output_tokens
+              if (evt.delta?.stop_reason) {
+                stopReason = evt.delta.stop_reason
               }
+              break
             }
           }
-          streamComplete = true
-        },
-        {
-          maxRetries: 1,
-          onRetry: (_attempt, err) => {
-            if (!isRetryableError(err)) throw err
-          },
-        },
-      )
-    } catch (err: unknown) {
+        }
+        streamComplete = true
+        streamError = null
+        break // success, exit retry loop
+      } catch (err: unknown) {
+        streamError = err instanceof Error ? err : new Error(String(err))
+        if (attempt < 1 && isRetryableError(streamError)) {
+          continue // retry
+        }
+        break // non-retryable or exhausted retries
+      }
+    }
+
+    if (streamError) {
       if (options.abortSignal?.aborted) {
         yield {
           type: 'terminal',
@@ -195,7 +205,7 @@ export async function* query(
         }
         return
       }
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = streamError.message
       logError(`Query error: ${msg}`)
 
       if (isPromptTooLongError(msg) && !hasAttemptedReactiveCompact) {
@@ -289,10 +299,9 @@ export async function* query(
       continue
     }
 
-    // Yield collected text deltas after stream completes
-    for (const text of textDeltas) {
-      yield { type: 'text_delta' as const, text }
-    }
+    // Note: text_delta events were already yielded in real-time during streaming above.
+    // Only tool starts, usage, tool results need to be yielded here.
+
     // Yield tool starts
     for (const tu of toolUses) {
       yield {
@@ -309,6 +318,11 @@ export async function* query(
       outputTokens: totalOutputTokens,
       totalInputTokens,
       totalOutputTokens,
+    }
+
+    // Warn if model returned nothing useful
+    if (textDeltas.length === 0 && toolUses.length === 0) {
+      process.stderr.write('\n  [Warning] Model returned no text and no tool calls. Check API configuration or model capabilities.\n')
     }
 
     const assistantContent: ContentItem[] = contentBlocks.map(b =>
