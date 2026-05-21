@@ -7,6 +7,27 @@ import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta
 import type { OpenAIStreamChunk } from './client.js'
 
 /**
+ * Extract text content from various OpenAI content formats.
+ * Handles: string, array of {type: "text", text: string}, etc.
+ */
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'object' && part !== null && 'text' in part) {
+          return String((part as { text: unknown }).text ?? '')
+        }
+        return ''
+      })
+      .join('')
+  }
+  return ''
+}
+
+/**
  * Adapt OpenAI streaming response into Anthropic stream events.
  * Converts:
  *   - text delta -> content_block_delta (text_delta)
@@ -37,27 +58,30 @@ export async function* openAIToAnthropicStream(
 
     // Handle text content
     if (delta.content !== undefined && delta.content !== null) {
-      if (!hasStartedTextBlock) {
-        contentBlockIndex++
-        currentTextBlockIndex = contentBlockIndex
-        hasStartedTextBlock = true
+      const text = extractTextContent(delta.content)
+      if (text) {
+        if (!hasStartedTextBlock) {
+          contentBlockIndex++
+          currentTextBlockIndex = contentBlockIndex
+          hasStartedTextBlock = true
+          yield {
+            type: 'content_block_start',
+            index: contentBlockIndex,
+            content_block: {
+              type: 'text',
+              text: '',
+            },
+          } as BetaRawMessageStreamEvent
+        }
         yield {
-          type: 'content_block_start',
-          index: contentBlockIndex,
-          content_block: {
-            type: 'text',
-            text: '',
+          type: 'content_block_delta',
+          index: currentTextBlockIndex,
+          delta: {
+            type: 'text_delta',
+            text,
           },
         } as BetaRawMessageStreamEvent
       }
-      yield {
-        type: 'content_block_delta',
-        index: currentTextBlockIndex,
-        delta: {
-          type: 'text_delta',
-          text: delta.content,
-        },
-      } as BetaRawMessageStreamEvent
     }
 
     // Handle tool calls

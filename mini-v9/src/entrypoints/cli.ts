@@ -7,7 +7,7 @@ import { getCwd, setCwd } from '../bootstrap/state.js'
 import { resolveModel } from '../utils/model/model.js'
 import { getAPIKey } from '../utils/auth.js'
 import { getPermissionMode } from '../utils/settings/settings.js'
-import { logError } from '../utils/log.js'
+import { logError, logInfo, logWarning, logDebug } from '../utils/log.js'
 import { createDefaultTurnLimitManager } from '../utils/turnLimit.js'
 import type { ContentItem } from '../types/message.js'
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
@@ -235,7 +235,9 @@ async function runREPL(
   const engine = new QueryEngine({
     messages: conversation.fullMessages,
     systemPrompt:
-      'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).',
+      'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination). ' +
+      'IMPORTANT: For real-time information questions (like weather, news, stock prices, current events, or anything that requires up-to-date data), you MUST use the WebSearch tool to get accurate, current information. ' +
+      'Do NOT answer questions about current weather, prices, or real-time data from your training data - always search the web first.',
     tools,
     model: modelName,
   })
@@ -327,6 +329,8 @@ async function runConversationTurn(
     process.stderr.write('\r' + ' '.repeat(40) + '\r')
   }
 
+  logInfo(`User input received: "${preprompt?.substring(0, 50)}${preprompt && preprompt.length > 50 ? '...' : ''}"`)
+  
   const gen = preprompt
     ? engine.submitMessage(preprompt, {
         onSystemContext: async msgs =>
@@ -350,73 +354,95 @@ async function runConversationTurn(
 
   startSpinner()
 
-  for await (const event of gen) {
-    switch (event.type) {
-      case 'text_delta':
-        if (!gotFirstToken) {
-          gotFirstToken = true
+  try {
+    logDebug('Starting message processing loop')
+    
+    for await (const event of gen) {
+       logInfo(`event type: "${event.type}"`)
+      switch (event.type) {
+        case 'text_delta':
+          if (!gotFirstToken) {
+            gotFirstToken = true
+            stopSpinner()
+            logDebug('First token received, stopping spinner')
+          }
+          logInfo(`event text: "${event.text}"`)
+          process.stdout.write(event.text)
+          break
+
+        case 'tool_start':
+          if (lastToolName) process.stderr.write('\n')
+          lastToolName = event.name
+          process.stderr.write('  ' + event.name + '...')
+          logInfo(`Tool execution started: ${event.name}`)
+          break
+
+        case 'tool_result':
+          if (event.isError) {
+            process.stderr.write(' (fail)\n')
+            logWarning(`Tool failed: ${event.name}`, { error: event.content })
+          } else if (lastToolName === event.name) {
+            process.stderr.write(' (ok)\n')
+            logDebug(`Tool succeeded: ${event.name}`)
+          }
+          break
+
+        case 'usage':
+          totalInputTokens = event.totalInputTokens
+          totalOutputTokens = event.totalOutputTokens
+          logDebug(`Token usage: ${event.totalInputTokens} in / ${event.totalOutputTokens} out`)
+          break
+
+        case 'turn_end':
+          turnCount = event.turnCount
+          logDebug(`Turn ${event.turnCount} completed`)
+          break
+
+        case 'terminal':
           stopSpinner()
-        }
-        process.stdout.write(event.text)
-        break
+          lastToolName = ''
+          logInfo(`Conversation ended: ${event.reason}`, { 
+            turnCount: event.turnCount,
+            inputTokens: event.totalInputTokens,
+            outputTokens: event.totalOutputTokens
+          })
 
-      case 'tool_start':
-        if (lastToolName) process.stderr.write('\n')
-        lastToolName = event.name
-        process.stderr.write('  ' + event.name + '...')
-        break
-
-      case 'tool_result':
-        if (event.isError) {
-          process.stderr.write(' (fail)\n')
-        } else if (lastToolName === event.name) {
-          process.stderr.write(' (ok)\n')
-        }
-        break
-
-      case 'usage':
-        totalInputTokens = event.totalInputTokens
-        totalOutputTokens = event.totalOutputTokens
-        break
-
-      case 'turn_end':
-        turnCount = event.turnCount
-        break
-
-      case 'terminal':
-        stopSpinner()
-        lastToolName = ''
-
-        if (turnCount > 1) {
-          process.stderr.write(
-            '\n  Tokens: ' +
-              totalInputTokens +
-              ' in / ' +
-              totalOutputTokens +
-              ' out | ' +
-              turnCount +
-              ' turns\n',
-          )
-        }
-
-        if (shouldExtractMemory(conversation.fullMessages)) {
-          const notes = extractSessionNotes(conversation.fullMessages)
-          persistSessionMemory(notes)
-          if (notes.length > 0) {
+          if (turnCount > 1) {
             process.stderr.write(
-              '  Memory: ' + notes.length + ' notes extracted\n',
+              '\n  Tokens: ' +
+                totalInputTokens +
+                ' in / ' +
+                totalOutputTokens +
+                ' out | ' +
+                turnCount +
+                ' turns\n',
             )
           }
-        }
 
-        persistConversationSnapshot(conversation)
-        break
+          if (shouldExtractMemory(conversation.fullMessages)) {
+            const notes = extractSessionNotes(conversation.fullMessages)
+            persistSessionMemory(notes)
+            if (notes.length > 0) {
+              process.stderr.write(
+                '  Memory: ' + notes.length + ' notes extracted\n',
+              )
+            }
+          }
 
-      case 'error':
-        stopSpinner()
-        logError('Query error: ' + event.message)
-        break
+          persistConversationSnapshot(conversation)
+          break
+
+        case 'error':
+          stopSpinner()
+          logError('Query error: ' + event.message)
+          break
+      }
     }
+  } catch (err: unknown) {
+    stopSpinner()
+    const msg = err instanceof Error ? err.message : String(err)
+    logError('Conversation error: ' + msg)
+    process.stderr.write(`\n  Error: ${msg}\n`)
   }
 }
 

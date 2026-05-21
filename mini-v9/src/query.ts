@@ -3,7 +3,7 @@ import { resolveModel } from './utils/model/model.js'
 import { getPermissionMode } from './utils/settings/settings.js'
 import { requestPermission } from './services/permission/permissionManager.js'
 import { isRetryableError } from './services/retry.js'
-import { logError } from './utils/log.js'
+import { logError, logInfo, logWarning, logDebug, logTiming } from './utils/log.js'
 import { createDefaultTurnLimitManager } from './utils/turnLimit.js'
 import {
   projectMessagesForAPI,
@@ -62,13 +62,26 @@ export async function* query(
   const DEFAULT_MAX_TOKENS = 32000
   const ESCALATED_MAX_TOKENS = 64000
 
+  logInfo(`Query started: ${messages.length} messages, ${tools.length} tools`, {
+    model: options.model,
+    maxTurns: options.maxTurns,
+  })
+
   while (true) {
     const turnResult = turnLimitManager.increment()
+    const turnCount = turnLimitManager.getTurnCount()
+    
+    logDebug(`Turn ${turnCount} started`, { 
+      shouldContinue: turnResult.shouldContinue,
+      maxTurns: options.maxTurns 
+    })
+    
     if (!turnResult.shouldContinue) {
+      logWarning(`Turn limit reached: ${turnCount}`, { maxTurns: options.maxTurns })
       yield {
         type: 'terminal',
         reason: 'max_turns',
-        turnCount: turnLimitManager.getTurnCount(),
+        turnCount,
         totalInputTokens,
         totalOutputTokens,
       }
@@ -76,9 +89,15 @@ export async function* query(
     }
 
     const activeModel = options.model ?? resolveModel()
+    logDebug(`Using model: ${activeModel}`)
+    
     const { messagesForAPI } = projectMessagesForAPI(conversation, {
       model: activeModel,
       commitCompactionToConversation: true,
+    })
+
+    logDebug(`Messages for API: ${messagesForAPI.length}`, { 
+      totalMessages: conversation.fullMessages.length 
     })
 
     const systemCtx = options.onSystemContext
@@ -356,24 +375,55 @@ export async function* query(
       input: tu.input,
     }))
 
-    const { toolResults } = await orchestrateToolExecution(
-      toolUseRequests,
-      toolsMap,
-      cwd,
-      {
-        canUseTool: options.canUseTool,
-        abortSignal: options.abortSignal,
-        isInteractive: options.isInteractive,
-      },
+    logInfo(`Executing ${toolUseRequests.length} tool(s): ${toolUseRequests.map(t => t.name).join(', ')}`)
+    
+    const { toolResults } = await logTiming(
+      `tool_execution_${toolUseRequests.map(t => t.name).join('_')}`,
+      () => orchestrateToolExecution(
+        toolUseRequests,
+        toolsMap,
+        cwd,
+        {
+          canUseTool: options.canUseTool,
+          abortSignal: options.abortSignal,
+          isInteractive: options.isInteractive,
+        },
+      ),
+      30000 // 30 second threshold for slow tool execution
     )
+
+    const failedTools = toolResults.filter(tr => {
+      const raw = tr as unknown as Record<string, unknown>
+      return raw.is_error === true
+    })
+    
+    if (failedTools.length > 0) {
+      logWarning(`${failedTools.length} tool(s) failed`, {
+        toolNames: failedTools.map(tr => {
+          const raw = tr as unknown as Record<string, unknown>
+          return raw.tool_use_id
+        })
+      })
+    }
 
     for (const tr of toolResults) {
       const raw = tr as unknown as Record<string, unknown>
       const content = typeof raw.content === 'string' ? raw.content : ''
+      const toolName = toolUses.find(tu => tu.id === raw.tool_use_id)?.name ?? 'unknown'
+      
+      if (raw.is_error) {
+        logWarning(`Tool failed: ${toolName}`, { 
+          error: content,
+          toolUseId: raw.tool_use_id 
+        })
+      } else {
+        logDebug(`Tool succeeded: ${toolName}`, { toolUseId: raw.tool_use_id })
+      }
+      
       yield {
         type: 'tool_result' as const,
         id: raw.tool_use_id as string,
-        name: toolUses.find(tu => tu.id === raw.tool_use_id)?.name ?? 'unknown',
+        name: toolName,
         success: !raw.is_error,
         content,
         isError: raw.is_error === true,

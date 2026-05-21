@@ -263,3 +263,70 @@ export function getLogStats(): Record<LogLevel, number> {
 
   return stats
 }
+
+// ============================================================================
+// Performance Monitoring
+// ============================================================================
+
+export interface TimingResult {
+  durationMs: number
+  message: string
+}
+
+/**
+ * Log timing for async operations
+ */
+export async function logTiming<T>(
+  operationName: string,
+  fn: () => Promise<T>,
+  warnThresholdMs: number = 5000,
+): Promise<T> {
+  const startTime = Date.now()
+  logDebug(`Starting operation: ${operationName}`)
+  
+  try {
+    const result = await fn()
+    const duration = Date.now() - startTime
+    
+    if (duration >= warnThresholdMs) {
+      logWarning(`Slow operation: ${operationName} took ${duration}ms`, { duration })
+    } else {
+      logDebug(`Completed operation: ${operationName} in ${duration}ms`, { duration })
+    }
+    
+    return result
+  } catch (error) {
+    const duration = Date.now() - startTime
+    logError(`Failed operation: ${operationName} after ${duration}ms`, error, { duration })
+    throw error
+  }
+}
+
+/**
+ * Create a timing wrapper for synchronous operations
+ */
+export function logTimingSync<T>(
+  operationName: string,
+  fn: () => T,
+  warnThresholdMs: number = 1000,
+): T {
+  const startTime = Date.now()
+  logDebug(`Starting sync operation: ${operationName}`)
+  
+  try {
+    const result = fn()
+    const duration = Date.now() - startTime
+    
+    if (duration >= warnThresholdMs) {
+      logWarning(`Slow sync operation: ${operationName} took ${duration}ms`, { duration })
+    } else {
+      logDebug(`Completed sync operation: ${operationName} in ${duration}ms`, { duration })
+    }
+    
+    return result
+  } catch (error) {
+    const duration = Date.now() - startTime
+    logError(`Failed sync operation: ${operationName} after ${duration}ms`, error, { duration })
+    throw error
+  }
+}
