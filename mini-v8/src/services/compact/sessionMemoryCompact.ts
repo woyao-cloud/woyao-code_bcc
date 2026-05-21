@@ -11,6 +11,7 @@ import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages
 import {
   getLastSummarizedMessageId,
   getSessionMemoryForPrompt,
+  getSessionMemoryConfig,
   isSessionMemoryEmpty,
   truncateSessionMemoryForCompact,
   readSessionMemory,
@@ -309,6 +310,9 @@ export function calculateMessagesToKeepIndex(
 export function trySessionMemoryCompaction(
   messages: BetaMessageParam[],
 ): SessionMemoryCompactResult | null {
+  // Respect the sessionMemoryCompactEnabled config flag
+  if (!getSessionMemoryConfig().sessionMemoryCompactEnabled) return null
+
   const sessionId = getSessionId()
   if (!sessionId) return null
 

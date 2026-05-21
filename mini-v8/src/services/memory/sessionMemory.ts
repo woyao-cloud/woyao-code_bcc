@@ -23,6 +23,8 @@ export interface SessionMemoryConfig {
   minTokensForInit: number
   minTokensBetweenUpdate: number
   maxNotes: number
+  /** When enabled, compaction uses persisted session memory notes instead of heuristic summaries */
+  sessionMemoryCompactEnabled: boolean
 }
 
 export interface SessionMemoryPromptOptions {
@@ -37,6 +39,7 @@ const DEFAULT_CONFIG: SessionMemoryConfig = {
   minTokensForInit: 2000,
   minTokensBetweenUpdate: 1000,
   maxNotes: 30,
+  sessionMemoryCompactEnabled: true,
 }
 
 const DEFAULT_PROMPT_MAX_NOTES_PER_CATEGORY = 3

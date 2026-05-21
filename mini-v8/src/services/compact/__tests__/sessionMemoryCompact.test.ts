@@ -8,11 +8,19 @@ const mockIsSessionMemoryEmpty = mock<(content: string) => boolean>()
 const mockTruncateSessionMemoryForCompact = mock<(content: string, maxTokens?: number) => { wasTruncated: boolean; truncatedContent: string }>()
 const mockGetSessionId = mock<() => string | null>()
 const mockGetLastSummarizedMessageId = mock<() => string | undefined>()
+const mockGetSessionMemoryConfig = mock<() => {
+  enabled: boolean
+  minTokensForInit: number
+  minTokensBetweenUpdate: number
+  maxNotes: number
+  sessionMemoryCompactEnabled: boolean
+}>()
 
 mock.module('../memory/sessionMemory.js', () => ({
   getSessionId: mockGetSessionId,
   getLastSummarizedMessageId: mockGetLastSummarizedMessageId,
   getSessionMemoryForPrompt: mockGetSessionMemoryForPrompt,
+  getSessionMemoryConfig: mockGetSessionMemoryConfig,
   isSessionMemoryEmpty: mockIsSessionMemoryEmpty,
   truncateSessionMemoryForCompact: mockTruncateSessionMemoryForCompact,
   readSessionMemory: mockReadSessionMemory,
@@ -221,13 +229,35 @@ describe('trySessionMemoryCompaction', () => {
     mockGetSessionId.mockReset()
     mockReadSessionMemory.mockReset()
     mockGetSessionMemoryForPrompt.mockReset()
+    mockGetSessionMemoryConfig.mockReset()
     mockIsSessionMemoryEmpty.mockReset()
     mockTruncateSessionMemoryForCompact.mockReset()
     mockGetLastSummarizedMessageId.mockReset()
     resetSessionMemoryCompactConfig()
+    // Default: SM compaction enabled
+    mockGetSessionMemoryConfig.mockReturnValue({
+      enabled: true,
+      minTokensForInit: 2000,
+      minTokensBetweenUpdate: 1000,
+      maxNotes: 30,
+      sessionMemoryCompactEnabled: true,
+    })
   })
 
   const systemMsg = { role: 'system', content: 'You are a helpful assistant.' } as BetaMessageParam
+
+  test('returns null when SM compaction disabled via config', () => {
+    mockGetSessionMemoryConfig.mockReturnValue({
+      enabled: true,
+      minTokensForInit: 2000,
+      minTokensBetweenUpdate: 1000,
+      maxNotes: 30,
+      sessionMemoryCompactEnabled: false,
+    })
+    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const result = trySessionMemoryCompaction(messages)
+    expect(result).toBeNull()
+  })
 
   test('returns null when no session ID', () => {
     mockGetSessionId.mockReturnValue(null)
