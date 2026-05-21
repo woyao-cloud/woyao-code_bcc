@@ -372,6 +372,8 @@ async function runAgentLoopCore(params: AgentLoopParams): Promise<AgentResult> {
                 (await getSystemContext(undefined, {
                   conversationMessages: messagesForAPI,
                   sessionMemoryMode: 'auto',
+                  // omitClaudeMd saves tokens for search/plan agents that don't need project conventions
+                  includeClaudeMd: !agentDef.omitClaudeMd,
                 })),
               tools: filteredTools,
               model,

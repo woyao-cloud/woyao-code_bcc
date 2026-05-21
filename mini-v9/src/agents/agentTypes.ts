@@ -52,6 +52,8 @@ export interface AgentDefinition {
   initialPrompt?: string
   /** Memory scope for persistent cross-session memory */
   memory?: 'user' | 'project' | 'local'
+  /** Skip CLAUDE.md injection into system context (saves tokens for agents that don't need project conventions) */
+  omitClaudeMd?: boolean
 }
 
 // ---------- Agent Instance ----------

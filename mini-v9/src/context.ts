@@ -20,6 +20,7 @@ import { getAgentsForPromptWithOptions } from './agents/agentRegistry.js'
 import { getTeamsForPromptWithOptions } from './agents/teamManager.js'
 import { getTeamMemoryForPromptWithOptions } from './services/memory/teamMemorySync.js'
 import { getSystemContextCacheRevision } from './services/context/contextCacheState.js'
+import { isInPlanMode, getPlanSummary, getPlanPhaseInstructions } from './services/planMode.js'
 
 // ============================================================================
 // Context Types
@@ -67,6 +68,8 @@ export interface ContextParts {
   agents?: string
   teams?: string
   environment?: string
+  planMode?: string
+  planInstructions?: string
 }
 
 export interface EnhancedContext {
@@ -291,6 +294,30 @@ export async function getEnhancedContext(
           optional: true,
         })
       }
+    }
+  }
+
+  // Plan mode context — injected when the model is in plan mode
+  if (isInPlanMode()) {
+    const planSummary = getPlanSummary()
+    const planPhaseInstructions = getPlanPhaseInstructions()
+    if (planSummary) {
+      candidateParts.planMode = planSummary
+      blocks.push({
+        key: 'planMode',
+        text: planSummary,
+        priority: 88,
+        optional: false,
+      })
+    }
+    if (planPhaseInstructions) {
+      candidateParts.planInstructions = planPhaseInstructions
+      blocks.push({
+        key: 'planInstructions',
+        text: planPhaseInstructions,
+        priority: 87,
+        optional: false,
+      })
     }
   }
 
