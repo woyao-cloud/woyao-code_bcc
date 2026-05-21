@@ -13,7 +13,7 @@ import type { ContentItem } from '../types/message.js'
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { Tool, ToolUseContext } from '../Tool.js'
 import { createAbortController } from '../utils/abortController.js'
-import { isOpenAIProvider } from '../utils/model/providers.js'
+import { getAPIProvider, getBaseURL, isOpenAIProvider } from '../utils/model/providers.js'
 import { resetTasks } from '../services/taskStore.js'
 import {
   drainNotifications,
@@ -65,6 +65,7 @@ import {
   saveConversationSnapshot,
   type PersistedSessionSnapshot,
 } from '../services/session/sessionStore.js'
+import { getOpenAIConfig } from 'src/services/api/openai/client.js'
 
 interface ToolUseBlock {
   type: 'tool_use'
@@ -96,7 +97,10 @@ async function main() {
   const args = cliArgs.promptArgs
   const resumeSnapshot = resolveResumeSnapshot(cliArgs)
   const didRestoreCwd = restoreSnapshotCwd(resumeSnapshot)
+  const provider = getAPIProvider()
+  process.stderr.write(`Using API provider: ${provider}\n`)
   const apiKey = getAPIKey()
+  
   if (!apiKey) {
     const keyName = isOpenAIProvider() ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'
     process.stderr.write('Error: ' + keyName + ' not set\n')
@@ -179,8 +183,14 @@ async function runREPL(
   const tools = getTools()
   const skillCount = discoverSkills(getCwd()).length
   const agentCount = getAllAgents().length
+  const modelName = resolveModel()
+  const baseUrl = getBaseURL()
   process.stderr.write(
     'Claude Code Mini v8.0.0 | ' +
+      modelName +
+      ' | ' +
+      baseUrl +
+      ' | ' +
       tools.length +
       ' tools | ' +
       loadedPlugins.length +
@@ -198,7 +208,7 @@ async function runREPL(
     systemPrompt:
       'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).',
     tools,
-    model: resolveModel(),
+    model: modelName,
   })
 
   while (true) {
@@ -244,13 +254,16 @@ async function runConversation(
   resumeSnapshot: PersistedSessionSnapshot | null,
 ) {
   const tools = getTools()
+  const modelName = resolveModel()
+  const baseUrl = getBaseURL()
+  process.stderr.write('Model: ' + modelName + ' | ' + baseUrl + '\n')
   const conversation = createConversationFromSnapshot(resumeSnapshot)
   const engine = new QueryEngine({
     messages: conversation.fullMessages,
     systemPrompt:
       'You are Claude Code Mini v8, a coding agent with multi-agent coordination capabilities. You have access to tools for file operations, shell execution, web access, memory management, plugin/skill ecosystem, and agent orchestration (Agent tool, TeamCreate/TeamDelete for swarm coordination).',
     tools,
-    model: resolveModel(),
+    model: modelName,
   })
   await runConversationTurn(engine, conversation, tools, prompt)
 }

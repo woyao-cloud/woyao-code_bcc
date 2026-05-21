@@ -47,6 +47,25 @@ export function isFirstPartyAnthropicBaseUrl(): boolean {
   return getAPIProvider() === 'firstParty'
 }
 
+/**
+ * Get the base URL for the currently active API provider.
+ * Returns a human-readable URL string for display purposes.
+ */
+export function getBaseURL(): string {
+  const provider = getAPIProvider()
+
+  if (provider === 'openai') {
+    return process.env.OPENAI_BASE_URL || 'http://localhost:11434/v1'
+  }
+
+  if (provider === 'gemini') {
+    return 'https://generativelanguage.googleapis.com/v1beta/'
+  }
+
+  // firstParty (Anthropic)
+  return process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+}
+
 export function isOpenAIProvider(): boolean {
   return getAPIProvider() === 'openai'
 }
