@@ -32,6 +32,7 @@ import {
   disconnectMCPServers,
 } from '../services/mcp/mcpClient.js'
 import { loadConfig } from '../services/config/configManager.js'
+import { recoverPlanState } from '../services/planMode.js'
 import { query } from '../query.js'
 import { QueryEngine } from '../QueryEngine.js'
 import { createInterface } from 'readline'
@@ -102,6 +103,14 @@ async function main() {
   const args = cliArgs.promptArgs
   const resumeSnapshot = resolveResumeSnapshot(cliArgs)
   const didRestoreCwd = restoreSnapshotCwd(resumeSnapshot)
+
+  // If resuming a session, try to recover plan state from disk
+  if (resumeSnapshot) {
+    const planRecovered = recoverPlanState()
+    if (planRecovered) {
+      process.stderr.write('Plan mode: recovered active plan from disk\n')
+    }
+  }
 
   // Auto-detect local Ollama for zero-config experience
   if (await detectOllama()) {

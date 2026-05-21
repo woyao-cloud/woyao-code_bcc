@@ -21,6 +21,7 @@ export const EnterPlanModeTool: Tool = {
   isConcurrencySafe: () => false,
   isReadOnly: () => true,
   isDestructive: () => false,
+  maxResultSizeChars: 100_000,
   async execute(
     _ctx: ToolUseContext,
     input: Record<string, unknown>,

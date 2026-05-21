@@ -201,15 +201,22 @@ export function getPlanPhaseInstructions(): string {
   switch (currentPhase) {
     case 1:
       lines.push('### Phase 1: Explore')
-      lines.push('- Use the **Agent tool** to spawn **Explore agents** in parallel (up to 3) to understand the codebase')
-      lines.push('- Each Explore agent should research a different aspect: architecture, patterns, relevant files')
-      lines.push('- After exploring, synthesize findings and prepare to design')
+      lines.push('- **Launch multiple Explore agents in parallel** (2-3) to understand the codebase from different angles:')
+      lines.push('  - Agent 1: Explore the overall architecture and project structure')
+      lines.push('  - Agent 2: Find existing patterns and similar features as reference')
+      lines.push('  - Agent 3: Trace relevant code paths and identify key files')
+      lines.push('- Use the Agent tool with agentType: "Explore" for each')
+      lines.push('- Launch all agents simultaneously so they run in parallel')
+      lines.push('- After all agents complete, synthesize their findings')
       lines.push('- When ready, move to Phase 2: Design')
       break
     case 2:
       lines.push('### Phase 2: Design')
       lines.push('- Use the **Agent tool** to spawn **Plan agents** to design implementation approaches')
-      lines.push('- Consider multiple approaches and their trade-offs')
+      lines.push('- Consider launching 2 Plan agents with different perspectives:')
+      lines.push('  - One focused on architecture and structure')
+      lines.push('  - One focused on implementation details and edge cases')
+      lines.push('- Synthesize the best of both approaches')
       lines.push('- Identify files to modify, dependencies, and risks')
       lines.push('- When ready, move to Phase 3: Review')
       break

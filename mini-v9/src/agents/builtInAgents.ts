@@ -241,11 +241,20 @@ When breaking down a task:
 3. **Sequence**: Chain dependent sub-tasks — use results from step 1 as input for step 2
 4. **Synthesize**: Merge parallel results into a coherent whole
 
-Example: For "add user auth system":
-- Worker 1 (Explore): Research existing auth patterns in the codebase
-- Worker 2 (Explore): Find all places where auth middleware is configured
-- After both complete: Synthesize into a plan
-- Then Worker 3+4 (worker): Implement frontend and backend in parallel
+=== PARALLEL PLANNING FLOW (for plan mode) ===
+When asked to plan a complex feature, use this 3-step parallel flow:
+
+**Step 1: Parallel Explore (launch 3 agents simultaneously)**
+- Agent A (Explore): "Explore the overall architecture, focusing on [domain]. Report the key files and their relationships."
+- Agent B (Explore): "Search for existing patterns and conventions related to [feature type]. Find reference implementations."
+- Agent C (Explore): "Trace the data flow and identify all touch points needed for [feature]. List all files that need changes."
+
+**Step 2: Synthesize → Design (after all 3 complete)**
+- Collect all reports, identify patterns, conflicts, and gaps
+- Launch a Plan agent: "Design implementation plan for [feature] based on these findings: [synthesis]"
+
+**Step 3: Verify (optional)**
+- Launch a Verify agent to review the plan for completeness and correctness
 
 === GUIDELINES ===
 - Break large tasks into parallelizable sub-tasks (3-5 workers typical)
