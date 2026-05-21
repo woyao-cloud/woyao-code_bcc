@@ -2,7 +2,9 @@
 
 ## 概述
 
-mini-v8 是一个轻量级 AI 编码助手 CLI，基于 Anthropic Claude API 构建。它支持多 API 提供商（Anthropic、OpenAI 兼容、Gemini），提供 REPL 交互和管道模式，内置文件操作、Shell 执行、Web 搜索、Agent 协调等工具。
+mini-v8 是一个轻量级 AI 编码助手 CLI，基于多 API 提供商构建。它支持 Anthropic、OpenAI 兼容（含 Ollama）、Gemini 三种后端，提供 REPL 交互和管道模式，内置文件操作、Shell 执行、Web 搜索、Agent 协调等工具。
+
+> **零配置体验**：如果本地安装了 Ollama，mini-v8 启动时会自动检测并默认使用 `deepseek-v4-flash:cloud` 模型，无需设置任何环境变量。
 
 ---
 
@@ -27,15 +29,30 @@ bun --version
 
 ### 1.2 获取 API 密钥
 
-至少设置一个 API 提供商：
+mini-v8 支持多种 API 提供商。以下方式任选其一：
 
-#### Anthropic（默认）
+#### 方式一：本地 Ollama（自动检测，推荐）
+
+如果本地安装了 Ollama，mini-v8 启动时**自动检测并使用**，**无需设置任何环境变量**：
+
+```bash
+# 确保 Ollama 正在运行
+ollama serve
+
+# 拉取模型（如果需要）
+ollama pull deepseek-v4-flash:cloud
+
+# 直接启动 mini-v8，自动使用本地 Ollama
+bun run dev
+```
+
+#### 方式二：Anthropic
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
 ```
 
-#### OpenAI 兼容
+#### 方式三：OpenAI 兼容（Ollama / DeepSeek / vLLM 等）
 
 ```bash
 export CLAUDE_CODE_USE_OPENAI=1
@@ -44,9 +61,7 @@ export OPENAI_BASE_URL=https://api.openai.com/v1  # 可自定义
 export OPENAI_MODEL=gpt-4o                          # 可选
 ```
 
-支持 Ollama / DeepSeek / vLLM 等任意 OpenAI 兼容端点。
-
-#### Gemini
+#### 方式四：Gemini
 
 ```bash
 export CLAUDE_CODE_USE_GEMINI=1
@@ -82,11 +97,15 @@ bun dist/cli.js
 启动后进入交互式命令行，显示提示符 `>`：
 
 ```
-Claude Code Mini v8.0.0 | claude-sonnet-4-20250514 | 45 tools | 2 plugins | 12 skills | 8 agents
+Using API provider: openai
+Agents: 8 registered (8 built-in)
+Claude Code Mini v8.0.0 | deepseek-v4-flash:cloud | http://localhost:11434/v1 | 45 tools | 0 plugins | 12 skills | 8 agents
 Type /help, Ctrl+C cancel, Ctrl+D exit
 
 >
 ```
+
+> 如果本地 Ollama 未运行或未检测到，将回退到 Anthropic 默认配置，此时需设置 `ANTHROPIC_API_KEY`。
 
 支持的操作：
 
@@ -115,14 +134,17 @@ echo "分析这段代码的复杂度" | bun run dev
 
 ### 2.4 指定模型
 
-通过环境变量指定模型：
+通过环境变量指定模型。使用 Ollama 自动检测时，默认使用 `deepseek-v4-flash:cloud`；使用 Anthropic 时，默认使用 `claude-sonnet-4-20250514`。
 
 ```bash
-# 使用 DeepSeek
+# 使用 DeepSeek（覆盖默认）
 export ANTHROPIC_MODEL=deepseek-v4-flash
 
 # 使用 Claude Opus 4
 export ANTHROPIC_MODEL=claude-opus-4-20250514
+
+# 使用 Ollama 时指定不同模型
+export OPENAI_MODEL=qwen-coder-plus
 
 # 运行
 bun run dev
@@ -161,7 +183,9 @@ bun run dev
 | `CLAUDE_CODE_USE_OPENAI=1` | 启用 OpenAI 兼容模式 |
 | `CLAUDE_CODE_USE_GEMINI=1` | 启用 Gemini 模式 |
 
-提供商优先级：`ANTHROPIC_BASE_URL` 已设置 > `CLAUDE_CODE_USE_GEMINI` > `CLAUDE_CODE_USE_OPENAI` > 自动检测 > 默认 firstParty。
+提供商优先级：`ANTHROPIC_BASE_URL` 已设置 > `CLAUDE_CODE_USE_GEMINI` > `CLAUDE_CODE_USE_OPENAI` > Ollama 自动检测 > 默认 firstParty。
+
+> Ollama 自动检测仅在没有任何提供商相关的环境变量时触发。如果设置了 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`，则按照对应提供商规则处理。
 
 #### 调试
 
@@ -478,3 +502,11 @@ mini-v8 的设计遵循以下原则：
 
 ANTHROPIC_BASE_URL = http://localhost:11434
 ANTHROPIC_MODEL = deepseek-v4-flash:cloud
+
+
+# 默认ollama 
+
+（windows CMD）
+set CLAUDE_CODE_USE_OPENAI=1
+set ANTHROPIC_MODEL=deepseek-v4-flash:cloud
+set ANTHROPIC_BASE_URL = http://localhost:11434

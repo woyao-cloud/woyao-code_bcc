@@ -1,9 +1,25 @@
 /**
  * Provider selection for mini-v5.
  * Supports Anthropic firstParty, OpenAI-compatible, and Gemini APIs.
+ *
+ * Auto-detection: when no provider is explicitly configured via env vars,
+ * mini-v8 will check if a local Ollama instance is reachable and default
+ * to it, providing a zero-config experience.
  */
 
 export type APIProvider = 'firstParty' | 'openai' | 'gemini'
+
+// Module-level auto-detection cache. Set by detectOllama() early in startup.
+let autoDetectedProvider: APIProvider | null = null
+
+/**
+ * Set an auto-detected provider override.
+ * Called during startup in cli.ts main() after Ollama reachability check.
+ * This allows synchronous getAPIProvider() to return the detected value.
+ */
+export function setAutoDetectedProvider(p: APIProvider | null): void {
+  autoDetectedProvider = p
+}
 
 /**
  * Get the API provider based on environment variables.
@@ -13,9 +29,12 @@ export type APIProvider = 'firstParty' | 'openai' | 'gemini'
  *   3. CLAUDE_CODE_USE_OPENAI=1 -> openai
  *   4. GEMINI_API_KEY without other keys -> gemini
  *   5. OPENAI_API_KEY without ANTHROPIC_API_KEY -> openai
- *   6. default -> firstParty
+ *   6. auto-detected Ollama (if reachable) -> openai
+ *   7. default -> firstParty
  */
 export function getAPIProvider(): APIProvider {
+  
+ if (process.env.CLAUDE_CODE_USE_OPENAI === '1') return 'openai'
   const hasAnthropicAuth =
     !!process.env.ANTHROPIC_API_KEY || !!process.env.ANTHROPIC_AUTH_TOKEN
   const hasAnthropicBase = !!process.env.ANTHROPIC_BASE_URL
@@ -26,7 +45,9 @@ export function getAPIProvider(): APIProvider {
 
   if (process.env.CLAUDE_CODE_USE_GEMINI === '1') return 'gemini'
 
-  if (process.env.CLAUDE_CODE_USE_OPENAI === '1') return 'openai'
+ 
+
+  
 
   if (
     process.env.GEMINI_API_KEY &&
@@ -40,7 +61,44 @@ export function getAPIProvider(): APIProvider {
     return 'openai'
   }
 
+  // Auto-detected override (set by detectOllama() in main())
+  if (autoDetectedProvider) return autoDetectedProvider
+
   return 'firstParty'
+}
+
+/**
+ * Check if a local Ollama instance is reachable.
+ * Attempts to fetch the Ollama tags endpoint with a short timeout.
+ * Caches the result so subsequent calls are instant.
+ */
+let ollamaReachable: boolean | null = null
+
+export async function detectOllama(): Promise<boolean> {
+  if (ollamaReachable !== null) return ollamaReachable
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 500)
+
+    const res = await fetch('http://localhost:11434/api/tags', {
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    ollamaReachable = res.ok
+  } catch {
+    ollamaReachable = false
+  }
+
+  return ollamaReachable
+}
+
+/**
+ * Whether Ollama was auto-detected (reachable and no explicit provider set).
+ */
+export function isOllamaAutoDetected(): boolean {
+  return autoDetectedProvider !== null
 }
 
 export function isFirstPartyAnthropicBaseUrl(): boolean {

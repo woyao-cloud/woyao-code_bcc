@@ -3,6 +3,8 @@
  * Checks Anthropic, OpenAI, and Gemini keys based on configured provider.
  */
 
+import { isOllamaAutoDetected } from './model/providers.js'
+
 export function getAPIKey(): string | undefined {
   const openaiKey = process.env.OPENAI_API_KEY
   const anthropicKey =
@@ -25,6 +27,11 @@ export function getAPIKey(): string | undefined {
 
   if (!anthropicKey && openaiKey) {
     return openaiKey
+  }
+
+  // Auto-detected Ollama — no API key required
+  if (isOllamaAutoDetected()) {
+    return ''
   }
 
   return anthropicKey

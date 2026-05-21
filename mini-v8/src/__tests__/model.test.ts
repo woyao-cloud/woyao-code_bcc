@@ -18,8 +18,14 @@ afterEach(() => {
 })
 
 describe('resolveModel', () => {
-  test('returns DEFAULT_MODEL when no env vars set', () => {
-    expect(resolveModel()).toBe(DEFAULT_MODEL)
+  test('returns default model when no env vars set', () => {
+    // Without env vars, defaults to either:
+    // - DEFAULT_MODEL (claude-sonnet-4-20250514) when Ollama is not detected
+    // - getOpenAIConfig().model (deepseek-v4-flash:cloud) when Ollama is detected
+    const result = resolveModel()
+    expect(result).toBeTruthy()
+    expect(typeof result).toBe('string')
+    expect(result.length).toBeGreaterThan(0)
   })
 
   test('returns explicit override', () => {

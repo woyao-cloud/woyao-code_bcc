@@ -104,7 +104,7 @@ export async function* streamOpenAIAPI(params: {
   maxTokens?: number
 }): AsyncGenerator<OpenAIStreamChunk> {
   const config = getOpenAIConfig()
-  if (!config.apiKey) {
+  if (!config.apiKey && !config.baseUrl.includes('localhost')) {
     throw new Error('OPENAI_API_KEY not set. Set it via environment variable.')
   }
 
@@ -123,12 +123,16 @@ export async function* streamOpenAIAPI(params: {
     temperature: 0,
   }
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (config.apiKey) {
+    headers.Authorization = `Bearer ${config.apiKey}`
+  }
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
+    headers,
     body: JSON.stringify(body),
     signal: params.signal,
   })

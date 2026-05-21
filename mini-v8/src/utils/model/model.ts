@@ -3,6 +3,8 @@
  */
 
 import { resolveModelAlias } from './modelStrings.js'
+import { getAPIProvider } from './providers.js'
+import { getOpenAIConfig } from '../../services/api/openai/client.js'
 
 export type ModelSetting = string
 
@@ -70,14 +72,26 @@ export function getMaxTokens(model: string): number {
 }
 
 export function resolveModel(override?: string): string {
-  const resolved = resolveModelAlias(
+  // Explicit override or env var always wins
+  const fromEnv =
     override ??
-      process.env.ANTHROPIC_MODEL ??
-      process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ??
-      process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ??
-      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
-      DEFAULT_MODEL,
-  )
-  if (MODELS[resolved]) return resolved
-  return resolved
+    process.env.ANTHROPIC_MODEL ??
+    process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ??
+    process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ??
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+ process.stderr.write(`[Model Resolution] override=${override} env=${fromEnv}\n`)
+  if (fromEnv) {
+    const resolved = resolveModelAlias(fromEnv)
+    if (MODELS[resolved]) return resolved
+    return resolved
+  }
+
+  // When using OpenAI-compatible provider (including auto-detected Ollama),
+  // default to the configured OpenAI model (deepseek-v4-flash:cloud by default)
+  if (getAPIProvider() === 'openai') {
+    return getOpenAIConfig().model
+  }
+
+  // Fallback to Anthropic default
+  return DEFAULT_MODEL
 }

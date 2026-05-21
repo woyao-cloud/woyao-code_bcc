@@ -13,7 +13,13 @@ import type { ContentItem } from '../types/message.js'
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { Tool, ToolUseContext } from '../Tool.js'
 import { createAbortController } from '../utils/abortController.js'
-import { getAPIProvider, getBaseURL, isOpenAIProvider } from '../utils/model/providers.js'
+import {
+  getAPIProvider,
+  getBaseURL,
+  isOpenAIProvider,
+  detectOllama,
+  setAutoDetectedProvider,
+} from '../utils/model/providers.js'
 import { resetTasks } from '../services/taskStore.js'
 import {
   drainNotifications,
@@ -65,7 +71,6 @@ import {
   saveConversationSnapshot,
   type PersistedSessionSnapshot,
 } from '../services/session/sessionStore.js'
-import { getOpenAIConfig } from 'src/services/api/openai/client.js'
 
 interface ToolUseBlock {
   type: 'tool_use'
@@ -97,13 +102,19 @@ async function main() {
   const args = cliArgs.promptArgs
   const resumeSnapshot = resolveResumeSnapshot(cliArgs)
   const didRestoreCwd = restoreSnapshotCwd(resumeSnapshot)
+
+  // Auto-detect local Ollama for zero-config experience
+  if (await detectOllama()) {
+    setAutoDetectedProvider('openai')
+  }
+
   const provider = getAPIProvider()
   process.stderr.write(`Using API provider: ${provider}\n`)
   const apiKey = getAPIKey()
-  
-  if (!apiKey) {
-    const keyName = isOpenAIProvider() ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'
-    process.stderr.write('Error: ' + keyName + ' not set\n')
+
+  // Only require API key for non-Ollama providers
+  if (!apiKey && provider !== 'openai') {
+    process.stderr.write('Error: ANTHROPIC_API_KEY not set\n')
     process.exit(1)
   }
 
