@@ -33,6 +33,7 @@ import { stdin, stdout } from 'process'
 import {
   createConversationBuffers,
   serializeConversationBuffers,
+  restoreLastSummarizedMessageIdFromBoundaries,
   type ConversationBuffers,
 } from '../services/messages/apiProjection.js'
 import {
@@ -452,13 +453,18 @@ function createConversationFromSnapshot(
     return createConversationBuffers()
   }
 
-  return createConversationBuffers(snapshot.conversation.fullMessages, {
+  const buffers = createConversationBuffers(snapshot.conversation.fullMessages, {
     compactBoundaries: snapshot.conversation.compactBoundaries,
     forceCompactNextProjection:
       snapshot.conversation.forceCompactNextProjection,
     restoreToolResultBudgetState: true,
     toolResultBudgetRecords: snapshot.conversation.toolResultBudgetRecords,
   })
+
+  // Restore boundary tracking from the last compact boundary metadata
+  restoreLastSummarizedMessageIdFromBoundaries(buffers.compactBoundaries)
+
+  return buffers
 }
 
 function persistConversationSnapshot(conversation: ConversationBuffers): void {

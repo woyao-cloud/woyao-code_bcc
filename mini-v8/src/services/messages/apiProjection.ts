@@ -13,8 +13,14 @@ import {
   type ToolResultBudgetReplacementRecord,
   type ToolResultBudgetState,
 } from '../compact/autoCompact.js'
-import { getSessionMemorySummaryForCompact } from '../memory/sessionMemory.js'
-import { trySessionMemoryCompaction } from '../compact/sessionMemoryCompact.js'
+import {
+  getSessionMemorySummaryForCompact,
+  setLastSummarizedMessageId,
+} from '../memory/sessionMemory.js'
+import {
+  trySessionMemoryCompaction,
+  getMessageFingerprint,
+} from '../compact/sessionMemoryCompact.js'
 import { invalidateSystemContextCache } from '../context/contextCacheState.js'
 import { restorePersistedToolResult } from '../toolResultStorage.js'
 import {
@@ -45,6 +51,8 @@ export interface CompactBoundaryMetadata {
   preservedTailCount: number
   sessionMemoryCompacted: boolean
   summaryPreview: string
+  /** Fingerprint of the last message compacted — used to resume boundary tracking */
+  lastSummarizedMessageId?: string
 }
 
 export interface APIMessageProjection {
@@ -285,6 +293,12 @@ export function projectMessagesForAPI(
     const smResult = trySessionMemoryCompaction(messagesForAPI)
     if (smResult) {
       didCompact = true
+
+      // Compute fingerprint of the last compacted message for boundary tracking
+      // (must use original messagesForAPI before reassignment)
+      const lastCompactMsg = messagesForAPI[smResult.keptStartIndex - 1]
+      const fingerprint = lastCompactMsg ? getMessageFingerprint(lastCompactMsg) : undefined
+
       messagesForAPI = smResult.messages
 
       if (conversation && options.commitCompactionToConversation) {
@@ -294,6 +308,7 @@ export function projectMessagesForAPI(
           activeMessages,
           smResult.messages,
           smResult.summaryText,
+          fingerprint,
         )
       }
     } else {
@@ -385,6 +400,7 @@ function commitCompactedProjectionToConversation(
   activeMessages: BetaMessageParam[],
   compactedMessages: BetaMessageParam[],
   sessionMemorySummary: string,
+  lastSummarizedMessageId?: string,
 ): void {
   const previousBoundaryIndex = findLastCompactBoundaryIndex(
     fullMessages,
@@ -398,6 +414,7 @@ function commitCompactedProjectionToConversation(
     activeMessages,
     compactedMessages,
     sessionMemorySummary,
+    lastSummarizedMessageId,
   )
   const committedActiveSlice = buildCommittedActiveSlice(compactedMessages)
 
@@ -421,6 +438,7 @@ function buildCompactBoundaryMetadata(
   sourceMessages: BetaMessageParam[],
   compactedMessages: BetaMessageParam[],
   sessionMemorySummary: string,
+  lastSummarizedMessageId?: string,
 ): CompactBoundaryMetadata {
   const summaryMessage = compactedMessages.find(
     message =>
@@ -441,6 +459,7 @@ function buildCompactBoundaryMetadata(
     preservedTailCount: Math.max(0, compactedMessages.length - 2),
     sessionMemoryCompacted: Boolean(sessionMemorySummary.trim()),
     summaryPreview,
+    lastSummarizedMessageId,
   }
 }
 
@@ -453,6 +472,21 @@ function buildCommittedActiveSlice(
 
   const [, ...rest] = compactedMessages
   return cloneMessages(rest)
+}
+
+/**
+ * Restore lastSummarizedMessageId from the last CompactBoundaryMetadata.
+ * Called on session resume to continue boundary tracking across compaction cycles.
+ */
+export function restoreLastSummarizedMessageIdFromBoundaries(
+  boundaries: CompactBoundaryMetadata[] | undefined,
+): void {
+  if (!boundaries || boundaries.length === 0) return
+
+  const lastBoundary = boundaries[boundaries.length - 1]
+  if (lastBoundary?.lastSummarizedMessageId) {
+    setLastSummarizedMessageId(lastBoundary.lastSummarizedMessageId)
+  }
 }
 
 function cloneMessages(messages: BetaMessageParam[]): BetaMessageParam[] {

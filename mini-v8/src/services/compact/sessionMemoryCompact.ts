@@ -375,6 +375,26 @@ export function trySessionMemoryCompaction(
 // ============================================================
 
 /**
+ * Compute a content fingerprint (first 40 chars of text content) for a message.
+ * Used for tracking which messages have been compacted across compaction cycles.
+ */
+export function getMessageFingerprint(msg: BetaMessageParam): string {
+  const content =
+    typeof msg.content === 'string'
+      ? msg.content
+      : Array.isArray(msg.content)
+        ? msg.content
+            .map(b => {
+              const block = b as unknown as Record<string, unknown>
+              if (block.type === 'text' && typeof block.text === 'string') return block.text
+              return ''
+            })
+            .join(' ')
+        : ''
+  return content.slice(0, 40)
+}
+
+/**
  * Find the message index by its content fingerprint.
  * Since BetaMessageParam doesn't have UUIDs, we use the lastSummarizedMessageId
  * which stores the first 40 chars of the message content as a fingerprint.
