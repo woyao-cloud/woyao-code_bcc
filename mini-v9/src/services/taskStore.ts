@@ -1,8 +1,16 @@
 /**
- * Task store for managing user-visible sub-tasks in mini-v8.
- * Also provides AgentTaskStore for tracking async agent lifecycle.
+ * Task store for mini-v9.
+ *
+ * Two tiers:
+ * 1. User-visible Tasks — persisted to disk (~/.claude-code-mini/tasks/),
+ *    supports dependency chains (blocks/blockedBy), and a verification
+ *    nudge after consecutive task completions.
+ * 2. AgentTaskStore — transient in-memory tracking of async agent lifecycle.
  */
 
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
 import { randomUUID } from 'crypto'
 import type {
   AgentTaskState,
@@ -11,11 +19,11 @@ import type {
   AgentResult,
   TaskId,
 } from '../agents/agentTypes.js'
-import { logDebug } from '../utils/log.js'
+import { logDebug, logError } from '../utils/log.js'
 import { enqueueNotification } from './notificationQueue.js'
 
 // ============================================================
-// User-visible Task store (existing API, unchanged)
+// Types
 // ============================================================
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
@@ -26,14 +34,107 @@ export interface Task {
   description: string
   status: TaskStatus
   result?: string
+  owner?: string
+  blocks: string[]       // task IDs that this task blocks
+  blockedBy: string[]    // task IDs that block this task
   createdAt: string
   updatedAt: string
+  metadata?: Record<string, unknown>
 }
 
-let taskCounter = 0
-const tasks = new Map<string, Task>()
+const TASKS_DIR = join(homedir(), '.claude-code-mini', 'tasks')
+const VERIFICATION_NUDGE_THRESHOLD = 3
 
-export function createTask(title: string, description: string): Task {
+// ============================================================
+// Disk persistence helpers
+// ============================================================
+
+function ensureTasksDir(): string {
+  if (!existsSync(TASKS_DIR)) {
+    mkdirSync(TASKS_DIR, { recursive: true })
+  }
+  return TASKS_DIR
+}
+
+function taskFilePath(id: string): string {
+  return join(TASKS_DIR, `${id}.json`)
+}
+
+function writeTaskToDisk(task: Task): void {
+  ensureTasksDir()
+  try {
+    writeFileSync(taskFilePath(task.id), JSON.stringify(task, null, 2), 'utf-8')
+  } catch (err) {
+    logError(`Failed to persist task ${task.id}: ${err}`)
+  }
+}
+
+function deleteTaskFromDisk(id: string): void {
+  try {
+    const path = taskFilePath(id)
+    if (existsSync(path)) unlinkSync(path)
+  } catch (err) {
+    logError(`Failed to delete task file ${id}: ${err}`)
+  }
+}
+
+function loadAllTasksFromDisk(): Map<string, Task> {
+  const tasks = new Map<string, Task>()
+  if (!existsSync(TASKS_DIR)) return tasks
+
+  try {
+    const files = readdirSync(TASKS_DIR).filter(f => f.endsWith('.json'))
+    for (const file of files) {
+      try {
+        const raw = readFileSync(taskFilePath(file.replace(/\.json$/, '')), 'utf-8')
+        const task = JSON.parse(raw) as Task
+        tasks.set(task.id, task)
+      } catch {
+        // skip corrupt files
+      }
+    }
+  } catch {
+    // skip unreadable directory
+  }
+
+  return tasks
+}
+
+// ============================================================
+// In-memory store with disk persistence
+// ============================================================
+
+let taskCounter = 0
+let tasks = new Map<string, Task>()
+let completedSinceLastVerification = 0
+
+/**
+ * Load persisted tasks from disk into memory.
+ * Should be called once at startup.
+ */
+export function initializeTaskStore(): void {
+  tasks = loadAllTasksFromDisk()
+  // Recover counter from existing IDs
+  let maxNum = 0
+  for (const id of tasks.keys()) {
+    const num = parseInt(id.replace('task_', ''), 10)
+    if (!isNaN(num) && num > maxNum) maxNum = num
+  }
+  taskCounter = maxNum
+  completedSinceLastVerification = 0
+  logDebug(`Task store initialized: ${tasks.size} tasks loaded from disk`)
+}
+
+export function createTask(
+  title: string,
+  description: string,
+  options?: {
+    owner?: string
+    blocks?: string[]
+    blockedBy?: string[]
+    metadata?: Record<string, unknown>
+  },
+): Task {
   taskCounter++
   const id = `task_${taskCounter}`
   const now = new Date().toISOString()
@@ -42,43 +143,136 @@ export function createTask(title: string, description: string): Task {
     title,
     description,
     status: 'pending',
+    owner: options?.owner,
+    blocks: options?.blocks ?? [],
+    blockedBy: options?.blockedBy ?? [],
     createdAt: now,
     updatedAt: now,
+    metadata: options?.metadata,
   }
   tasks.set(id, task)
+  writeTaskToDisk(task)
   return task
 }
 
 export function updateTask(
   id: string,
-  updates: Partial<Pick<Task, 'status' | 'result'>>,
+  updates: Partial<Pick<Task, 'status' | 'result' | 'owner' | 'blocks' | 'blockedBy' | 'metadata'>>,
 ): Task | undefined {
   const task = tasks.get(id)
   if (!task) return undefined
-  if (updates.status) task.status = updates.status
+
+  if (updates.status !== undefined) task.status = updates.status
   if (updates.result !== undefined) task.result = updates.result
+  if (updates.owner !== undefined) task.owner = updates.owner
+  if (updates.blocks !== undefined) task.blocks = updates.blocks
+  if (updates.blockedBy !== undefined) task.blockedBy = updates.blockedBy
+  if (updates.metadata !== undefined) task.metadata = updates.metadata
   task.updatedAt = new Date().toISOString()
+
   tasks.set(id, task)
+  writeTaskToDisk(task)
   return task
 }
 
-export function listTasks(): Task[] {
-  return Array.from(tasks.values()).sort((a, b) =>
+export function listTasks(filter?: { status?: TaskStatus }): Task[] {
+  const all = Array.from(tasks.values()).sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt),
   )
+  if (filter?.status) {
+    return all.filter(t => t.status === filter.status)
+  }
+  return all
 }
 
 export function getTask(id: string): Task | undefined {
   return tasks.get(id)
 }
 
+/**
+ * Get tasks that are blocked (have unresolved blockedBy dependencies).
+ */
+export function getBlockedTasks(): Task[] {
+  return listTasks().filter(t => {
+    if (!t.blockedBy || t.blockedBy.length === 0) return false
+    // A task is blocked if ANY of its blockedBy deps is not completed
+    return t.blockedBy.some(depId => {
+      const dep = tasks.get(depId)
+      return !dep || dep.status !== 'completed'
+    })
+  })
+}
+
+export function getTasksBlocking(taskId: string): Task[] {
+  const task = tasks.get(taskId)
+  if (!task || !task.blocks) return []
+  return task.blocks
+    .map(id => tasks.get(id))
+    .filter((t): t is Task => t !== undefined)
+}
+
+export function getTaskBlockedBy(taskId: string): Task[] {
+  const task = tasks.get(taskId)
+  if (!task || !task.blockedBy) return []
+  return task.blockedBy
+    .map(id => tasks.get(id))
+    .filter((t): t is Task => t !== undefined)
+}
+
 export function resetTasks(): void {
+  // Clear disk
+  if (existsSync(TASKS_DIR)) {
+    const files = readdirSync(TASKS_DIR).filter(f => f.endsWith('.json'))
+    for (const file of files) {
+      try {
+        unlinkSync(join(TASKS_DIR, file))
+      } catch {
+        // ignore
+      }
+    }
+  }
   taskCounter = 0
   tasks.clear()
+  completedSinceLastVerification = 0
+}
+
+/**
+ * Check whether a verification nudge should be emitted.
+ * Returns a recommendation string or empty string.
+ */
+export function checkVerificationNudge(): string {
+  if (completedSinceLastVerification >= VERIFICATION_NUDGE_THRESHOLD) {
+    completedSinceLastVerification = 0
+    return (
+      'Note: Multiple tasks have been completed without verification. ' +
+      'Consider using the Verify agent (Agent tool with agentType: "Verify") ' +
+      'to review the implemented changes for correctness and completeness.'
+    )
+  }
+  return ''
+}
+
+/**
+ * Record a task completion for verification nudge tracking.
+ */
+export function recordTaskCompletion(status: TaskStatus): void {
+  if (status === 'completed') {
+    completedSinceLastVerification++
+  } else {
+    // Reset on non-completion (model is changing approach)
+    completedSinceLastVerification = 0
+  }
+}
+
+/**
+ * Reset the verification nudge counter (e.g., verification was just performed).
+ */
+export function resetVerificationNudgeCounter(): void {
+  completedSinceLastVerification = 0
 }
 
 // ============================================================
-// AgentTaskStore — tracks async agent lifecycle
+// AgentTaskStore — tracks async agent lifecycle (unchanged, transient)
 // ============================================================
 
 class AgentTaskStoreImpl {

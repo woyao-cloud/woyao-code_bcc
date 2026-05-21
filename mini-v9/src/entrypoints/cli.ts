@@ -20,7 +20,7 @@ import {
   detectOllama,
   setAutoDetectedProvider,
 } from '../utils/model/providers.js'
-import { resetTasks } from '../services/taskStore.js'
+import { initializeTaskStore } from '../services/taskStore.js'
 import {
   drainNotifications,
   hasPendingNotifications,
@@ -96,7 +96,7 @@ async function main() {
     VERSION: '8.0.0',
     BUILD_TIME: new Date().toISOString(),
   }
-  resetTasks()
+  initializeTaskStore()
 
   const cliArgs = parseCLIArgs(process.argv.slice(2))
   const args = cliArgs.promptArgs

@@ -1,10 +1,10 @@
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
-import { getTask } from '../../../services/taskStore.js'
+import { getTask, getTasksBlocking, getTaskBlockedBy } from '../../../services/taskStore.js'
 
 export const TaskGetTool: Tool = {
   name: 'TaskGet',
   description:
-    'Get details of a specific task by ID. Returns the task title, description, status, and result if available.',
+    'Get details of a specific task by ID. Returns full task info including title, description, status, owner, dependencies (blocks/blockedBy), and result.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -15,7 +15,7 @@ export const TaskGetTool: Tool = {
     },
     required: ['id'],
   },
-  prompt: 'TaskGet tool: get details of a specific task.',
+  prompt: 'TaskGet tool: get full details of a specific task.',
   isConcurrencySafe: () => false,
   isReadOnly: () => true,
   isDestructive: () => false,
@@ -47,9 +47,28 @@ export const TaskGetTool: Tool = {
       `Title: ${task.title}`,
       `Status: ${task.status}`,
       `Description: ${task.description}`,
-      `Created: ${task.createdAt}`,
-      `Updated: ${task.updatedAt}`,
     ]
+    if (task.owner) lines.push(`Owner: ${task.owner}`)
+    if (task.blockedBy.length > 0) {
+      const blockers = getTaskBlockedBy(id)
+      lines.push(
+        `Blocked by: ${task.blockedBy.join(', ')}` +
+          (blockers.length > 0
+            ? blockers.map(t => `\n  - ${t.id}: "${t.title}" [${t.status}]`)
+            : ''),
+      )
+    }
+    if (task.blocks.length > 0) {
+      const blocking = getTasksBlocking(id)
+      lines.push(
+        `Blocks: ${task.blocks.join(', ')}` +
+          (blocking.length > 0
+            ? blocking.map(t => `\n  - ${t.id}: "${t.title}" [${t.status}]`)
+            : ''),
+      )
+    }
+    lines.push(`Created: ${task.createdAt}`)
+    lines.push(`Updated: ${task.updatedAt}`)
     if (task.result) {
       lines.push(`Result: ${task.result.slice(0, 500)}`)
     }
