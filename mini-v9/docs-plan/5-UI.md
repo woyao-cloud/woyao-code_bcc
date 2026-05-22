@@ -149,3 +149,44 @@
  - Status bar updates (Phase 6)
  - Ctrl+D exit
 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+ Phase 1 Complete: Structural Refactoring + Colored Output
+
+  Files created:
+  - src/ui/format.ts — color helpers (dim, green, red, yellow, cyan, bold, gray, white via chalk)
+  - src/ui/spinner.ts — extracted spinner with start/stop/update/setGotFirstToken, fixed to stop on tool_start not just text_delta
+  - src/ui/events.ts — event rendering with colored stderr output for each QueryEvent type
+  - src/ui/session.ts — extracted session helpers (parseCLIArgs, resolveResumeSnapshot, createConversationFromSnapshot, persistConversationSnapshot)
+
+  Files modified:
+  - src/entrypoints/cli.ts — reduced from 610 to ~250 lines, imports from src/ui/*
+  - package.json — added chalk@^5.3.0
+
+  Verification:
+  - bun test: 660 pass, 1 fail (pre-existing environment-specific)
+  - bun run typecheck: no new errors
+  - bun run dev: CLI starts correctly, spinner works, colored output
+
+  Key fix: Spinner now stops on tool_start events too (not just text_delta), fixing the "spinner hides tool output" bug in tool-only responses.
+
+  To continue, I can start Phase 2: Input System Upgrade (raw-mode multi-line input, history, Ctrl+C/D handling). Shall I proceed?
+
+
+● Phase 4 complete. Here's what was done:
+
+  Created src/ui/renderer.ts
+  - renderText() — processes streaming text through a stateful code block parser. Buffers content inside ``` fences, applies syntax highlighting via cli-highlight when the
+  closing fence arrives, then writes the highlighted block
+  - flushRenderer() — called on terminal event to flush any unclosed code block
+  - resetRenderer() — called on error to clear buffer state
+  - Inline formatting: `code` spans → yellow, URLs → dim
+  - Code blocks indented 2 spaces, with language auto-detection and ignoreIllegals for robustness
+
+  Modified src/ui/events.ts
+  - text_delta → writes renderText(event.text) instead of raw event.text
+  - terminal → calls flushRenderer()
+  - error → calls resetRenderer()
+
+  Dependencies: cli-highlight@^2.1.11 added to package.json
+
+  Tests: 660 pass, 1 fail (pre-existing) — no regressions.

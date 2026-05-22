@@ -2,6 +2,7 @@ import type { QueryEvent } from '../query/transitions.js'
 import type { Spinner } from './spinner.js'
 import type { UIStateManager } from './state.js'
 import { green, red, yellow, cyan, dim } from './format.js'
+import { renderText, flushRenderer, resetRenderer } from './renderer.js'
 
 export interface EventContext {
   spinner: Spinner
@@ -33,7 +34,7 @@ export function handleEvent(
         ctx.spinner.stop()
       }
       ctx.stateManager.setState({ status: 'streaming' })
-      process.stdout.write(event.text)
+      process.stdout.write(renderText(event.text))
       break
     }
 
@@ -78,6 +79,8 @@ export function handleEvent(
       ctx.spinner.stop()
       ctx.lastToolName = ''
       ctx.stateManager.reset()
+      const flushed = flushRenderer()
+      if (flushed) process.stdout.write(flushed)
 
       if (event.turnCount > 1) {
         process.stderr.write(
@@ -97,6 +100,7 @@ export function handleEvent(
     case 'error': {
       ctx.spinner.stop()
       ctx.stateManager.setState({ status: 'idle', errorMessage: event.message })
+      resetRenderer()
       process.stderr.write(red('\n  Error: ' + event.message + '\n'))
       break
     }
