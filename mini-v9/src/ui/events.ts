@@ -1,18 +1,21 @@
 import type { QueryEvent } from '../query/transitions.js'
 import type { Spinner } from './spinner.js'
-import { green, red, yellow, cyan, dim, bold, gray } from './format.js'
+import type { UIStateManager } from './state.js'
+import { green, red, yellow, cyan, dim } from './format.js'
 
 export interface EventContext {
   spinner: Spinner
+  stateManager: UIStateManager
   turnCount: number
   totalInputTokens: number
   totalOutputTokens: number
   lastToolName: string
 }
 
-export function createEventContext(spinner: Spinner): EventContext {
+export function createEventContext(spinner: Spinner, stateManager: UIStateManager): EventContext {
   return {
     spinner,
+    stateManager,
     turnCount: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -29,6 +32,7 @@ export function handleEvent(
       if (!ctx.spinner.setGotFirstToken(true)) {
         ctx.spinner.stop()
       }
+      ctx.stateManager.setState({ status: 'streaming' })
       process.stdout.write(event.text)
       break
     }
@@ -38,7 +42,9 @@ export function handleEvent(
       ctx.spinner.setGotFirstToken(true)
       if (ctx.lastToolName) process.stderr.write('\n')
       ctx.lastToolName = event.name
-      process.stderr.write('  ' + cyan(event.name) + '...')
+      ctx.stateManager.setState({ status: 'executing_tools', currentToolName: event.name })
+      ctx.spinner.update(event.name + '...')
+      ctx.spinner.start()
       break
     }
 
@@ -48,23 +54,30 @@ export function handleEvent(
       } else if (ctx.lastToolName === event.name) {
         process.stderr.write(green(' (ok)\n'))
       }
+      ctx.stateManager.setState({ currentToolName: '' })
       break
     }
 
     case 'usage': {
       ctx.totalInputTokens = event.totalInputTokens
       ctx.totalOutputTokens = event.totalOutputTokens
+      ctx.stateManager.setState({
+        totalInputTokens: event.totalInputTokens,
+        totalOutputTokens: event.totalOutputTokens,
+      })
       break
     }
 
     case 'turn_end': {
       ctx.turnCount = event.turnCount
+      ctx.stateManager.setState({ turnCount: event.turnCount })
       break
     }
 
     case 'terminal': {
       ctx.spinner.stop()
       ctx.lastToolName = ''
+      ctx.stateManager.reset()
 
       if (event.turnCount > 1) {
         process.stderr.write(
@@ -83,11 +96,13 @@ export function handleEvent(
 
     case 'error': {
       ctx.spinner.stop()
+      ctx.stateManager.setState({ status: 'idle', errorMessage: event.message })
       process.stderr.write(red('\n  Error: ' + event.message + '\n'))
       break
     }
 
     case 'recovery': {
+      ctx.stateManager.setState({ status: 'thinking' })
       break
     }
 

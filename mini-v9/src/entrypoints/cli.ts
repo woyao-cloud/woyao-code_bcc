@@ -36,7 +36,6 @@ import { loadConfig } from '../services/config/configManager.js'
 import { recoverPlanState } from '../services/planMode.js'
 import { query } from '../query.js'
 import { QueryEngine } from '../QueryEngine.js'
-import { createInterface } from 'readline'
 import { stdin, stdout } from 'process'
 import {
   createConversationBuffers,
@@ -70,7 +69,9 @@ import { initAgentRegistry, getAllAgents } from '../agents/agentRegistry.js'
 
 // UI module imports
 import { parseCLIArgs, resolveResumeSnapshot, restoreSnapshotCwd, createConversationFromSnapshot, persistConversationSnapshot } from '../ui/session.js'
+import { readInput } from '../ui/input.js'
 import { createSpinner } from '../ui/spinner.js'
+import { createUIStateManager } from '../ui/state.js'
 import { createEventContext, handleEvent } from '../ui/events.js'
 import { green, yellow, dim, cyan } from '../ui/format.js'
 
@@ -229,6 +230,8 @@ async function runREPL(
     model: modelName,
   })
 
+  const inputHistory: string[] = []
+
   while (true) {
     // Drain pending task notifications (from background agents) before user input
     if (hasPendingNotifications()) {
@@ -242,7 +245,7 @@ async function runREPL(
       }
     }
 
-    const line = await question('> ')
+    const line = await readInput({ prompt: '> ', history: inputHistory })
 
     if (line === null) break // Ctrl+D
     if (line.trim() === '') continue
@@ -291,7 +294,8 @@ async function runConversationTurn(
   preprompt?: string,
 ) {
   const spinner = createSpinner()
-  const eventCtx = createEventContext(spinner)
+  const stateManager = createUIStateManager()
+  const eventCtx = createEventContext(spinner, stateManager)
 
   logInfo(`User input received: "${preprompt?.substring(0, 50)}${preprompt && preprompt.length > 50 ? '...' : ''}"`)
 
@@ -360,24 +364,6 @@ async function runConversationTurn(
     logError('Conversation error: ' + msg)
     process.stderr.write(`\n  Error: ${msg}\n`)
   }
-}
-
-function question(prompt: string): Promise<string | null> {
-  const rl = createInterface({ input: stdin, output: stdout })
-  let resolved = false
-  return new Promise(resolve => {
-    const done = (value: string | null) => {
-      if (!resolved) {
-        resolved = true
-        resolve(value)
-      }
-    }
-    rl.question(prompt, answer => {
-      done(answer)
-      rl.close()
-    })
-    rl.on('close', () => done(null))
-  })
 }
 
 main().catch(err => {
