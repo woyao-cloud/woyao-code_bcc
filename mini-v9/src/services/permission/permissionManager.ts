@@ -3,7 +3,8 @@
  * Manages user approvals for tool executions.
  */
 
-import { createInterface } from 'readline'
+import { showPermissionDialog } from '../../ui/dialogs/permissionDialog.js'
+import type { PermissionChoice } from '../../ui/dialogs/types.js'
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions'
 
@@ -15,6 +16,7 @@ export interface PermissionRequest {
 
 let permissionMode: PermissionMode = 'default'
 let sessionApprovals = new Map<string, boolean>()
+let sessionDenials = new Map<string, boolean>()
 
 export function setPermissionMode(mode: PermissionMode): void {
   permissionMode = mode
@@ -51,35 +53,23 @@ export async function requestPermission(
   if (sessionApprovals.has(cacheKey)) {
     return sessionApprovals.get(cacheKey)!
   }
-
-  // Build prompt
-  const inputPreview = JSON.stringify(req.input, null, 0).slice(0, 200)
-  process.stderr.write('\n  Permission required: ' + req.toolName + '\n')
-  process.stderr.write('  ' + req.toolDescription.slice(0, 100) + '\n')
-  process.stderr.write('  Input: ' + inputPreview + '\n')
-
-  const answer = await askUser('  Allow? (y/n/always): ')
-
-  if (answer === 'always' || answer === 'a') {
-    sessionApprovals.set(cacheKey, true)
-    return true
+  if (sessionDenials.has(cacheKey)) {
+    return false
   }
-  if (answer === 'yes' || answer === 'y') {
-    sessionApprovals.set(cacheKey, true)
-    return true
-  }
-  return false
-}
 
-function askUser(question: string): Promise<string> {
-  return new Promise(resolve => {
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stderr,
-    })
-    rl.question(question, answer => {
-      rl.close()
-      resolve(answer.trim().toLowerCase())
-    })
-  })
+  const choice = await showPermissionDialog(req)
+
+  switch (choice) {
+    case 'allow':
+      return true
+    case 'always_allow':
+      sessionApprovals.set(cacheKey, true)
+      return true
+    case 'always_deny':
+      sessionDenials.set(cacheKey, false)
+      return false
+    case 'deny':
+    default:
+      return false
+  }
 }
