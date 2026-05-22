@@ -5,7 +5,7 @@
 
 import type { BetaRawMessageStreamEvent } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { OpenAIStreamChunk } from './client.js'
-import { logDebug, logWarning } from '../../../utils/log.js'
+import { logDebug, logInfo } from '../../../utils/log.js'
 
 /**
  * Extract text content from various OpenAI content formats.
@@ -93,7 +93,9 @@ export async function* openAIToAnthropicStream(
 
     // Handle tool calls
     if (delta.tool_calls) {
+      logDebug(`OpenAI chunk ${chunkCount}: found ${delta.tool_calls.length} tool_call(s)`)
       for (const tc of delta.tool_calls) {
+        logDebug(`  tool_call[${tc.index}]: id=${tc.id}, name=${tc.function?.name}, args=${tc.function?.arguments?.substring(0, 100)}`)
         const state = toolCallStates.get(tc.index)
 
         if (!state) {
@@ -106,6 +108,7 @@ export async function* openAIToAnthropicStream(
               started: false,
             }
             toolCallStates.set(tc.index, newState)
+            logInfo(`Tool call detected: ${tc.function.name}`)
           }
         } else if (!state.started) {
           // Emit content_block_start for this tool

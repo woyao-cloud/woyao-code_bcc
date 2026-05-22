@@ -9,6 +9,7 @@ import { createDefaultTurnLimitManager } from './utils/turnLimit.js'
 import {
   projectMessagesForAPI,
   createConversationBuffers,
+  pushMessageWithUuid,
   type ConversationBuffers,
 } from './services/messages/apiProjection.js'
 import { createToolResultBudgetState } from './services/compact/autoCompact.js'
@@ -280,6 +281,9 @@ export async function* query(
         if (result.didCompact) {
           conversation.fullMessages.length = 0
           conversation.fullMessages.push(...result.messages)
+          // Sync messages array (cli's conversation reference) to match compacted state
+          messages.length = 0
+          messages.push(...result.messages)
           // Trim UUIDs to match new message count
           conversation.messageUuids.length = Math.min(
             conversation.messageUuids.length,
@@ -372,13 +376,17 @@ export async function* query(
           : { type: 'text' as const, text: b.text },
       )
       if (partialContent.length > 0) {
-        messages.push({ role: 'assistant', content: partialContent })
+        const partialMsg = { role: 'assistant' as const, content: partialContent }
+        messages.push(partialMsg)
+        pushMessageWithUuid(conversation, partialMsg)
       }
       const recoveryMsg =
         recoveryCount === 0
           ? '[Response cut off by output token limit. Increase token budget and continue from where you left off.]'
           : '[Response cut off again. Continue your response from where you were interrupted.]'
-      messages.push({ role: 'user', content: recoveryMsg })
+      const recoveryUserMsg = { role: 'user' as const, content: recoveryMsg }
+      messages.push(recoveryUserMsg)
+      pushMessageWithUuid(conversation, recoveryUserMsg)
       recoveryCount++
       yield {
         type: 'recovery' as const,
@@ -420,7 +428,9 @@ export async function* query(
         : { type: 'text' as const, text: b.text },
     )
     if (assistantContent.length > 0) {
-      messages.push({ role: 'assistant', content: assistantContent })
+      const assistantMsg = { role: 'assistant' as const, content: assistantContent }
+      messages.push(assistantMsg)
+      pushMessageWithUuid(conversation, assistantMsg)
     }
 
     if (toolUses.length === 0) {
@@ -545,7 +555,9 @@ export async function* query(
       }
       return tr
     })
-    messages.push({ role: 'user', content: persistedResults })
+    const toolResultMsg = { role: 'user' as const, content: persistedResults }
+    messages.push(toolResultMsg)
+    pushMessageWithUuid(conversation, toolResultMsg)
     yield {
       type: 'turn_end',
       turnCount: turnLimitManager.getTurnCount(),
