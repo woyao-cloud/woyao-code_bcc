@@ -67,25 +67,12 @@ import { getTeamMemoryForPrompt } from '../services/memory/teamMemorySync.js'
 
 // Agent system imports
 import { initAgentRegistry, getAllAgents } from '../agents/agentRegistry.js'
-import {
-  loadConversationSnapshot,
-  loadLatestConversationSnapshot,
-  saveConversationSnapshot,
-  normalizeMessages,
-  type PersistedSessionSnapshot,
-} from '../services/session/sessionStore.js'
 
-interface ToolUseBlock {
-  type: 'tool_use'
-  id: string
-  name: string
-  input: Record<string, unknown>
-}
-interface TextBlock {
-  type: 'text'
-  text: string
-}
-type ContentBlock = ToolUseBlock | TextBlock
+// UI module imports
+import { parseCLIArgs, resolveResumeSnapshot, restoreSnapshotCwd, createConversationFromSnapshot, persistConversationSnapshot } from '../ui/session.js'
+import { createSpinner } from '../ui/spinner.js'
+import { createEventContext, handleEvent } from '../ui/events.js'
+import { green, yellow, dim, cyan } from '../ui/format.js'
 
 // Module-level cache for loaded plugins
 let loadedPlugins: LoadedPlugin[] = []
@@ -170,7 +157,6 @@ async function main() {
   }
 
   // Initialize command registry (auto-dispatches /commands)
-  // MCP entries getter returns the current entries (updated after connection)
   const getMcpEntries = () => mcpEntries
   initializeCommands(
     conv => persistConversationSnapshot(conv),
@@ -208,7 +194,7 @@ async function main() {
 
 async function runREPL(
   _config: unknown,
-  resumeSnapshot: PersistedSessionSnapshot | null,
+  resumeSnapshot: import('../ui/session.js').PersistedSessionSnapshot | null,
 ) {
   const tools = getTools()
   const skillCount = discoverSkills(getCwd()).length
@@ -281,7 +267,7 @@ async function runREPL(
 async function runConversation(
   prompt: string,
   _config: unknown,
-  resumeSnapshot: PersistedSessionSnapshot | null,
+  resumeSnapshot: import('../ui/session.js').PersistedSessionSnapshot | null,
 ) {
   const tools = getTools()
   const modelName = resolveModel()
@@ -304,34 +290,11 @@ async function runConversationTurn(
   tools: Tool[],
   preprompt?: string,
 ) {
-  const spinChars = ['/', '-', '\\', '|']
-  let spinIdx = 0
-  let spinInterval: ReturnType<typeof setInterval> | null = null
-  let gotFirstToken = false
-
-  const startSpinner = () => {
-    gotFirstToken = false
-    spinInterval = setInterval(() => {
-      if (gotFirstToken) {
-        clearInterval(spinInterval!)
-        spinInterval = null
-        return
-      }
-      process.stderr.write('\r  ' + (spinChars[spinIdx] ?? '') + ' Thinking...')
-      spinIdx = (spinIdx + 1) % 4
-    }, 120)
-  }
-
-  const stopSpinner = () => {
-    if (spinInterval) {
-      clearInterval(spinInterval)
-      spinInterval = null
-    }
-    process.stderr.write('\r' + ' '.repeat(40) + '\r')
-  }
+  const spinner = createSpinner()
+  const eventCtx = createEventContext(spinner)
 
   logInfo(`User input received: "${preprompt?.substring(0, 50)}${preprompt && preprompt.length > 50 ? '...' : ''}"`)
-  
+
   const gen = preprompt
     ? engine.submitMessage(preprompt, {
         onSystemContext: async msgs =>
@@ -348,74 +311,25 @@ async function runConversationTurn(
           }),
       })
 
-  let totalInputTokens = 0
-  let totalOutputTokens = 0
-  let turnCount = 0
-  let lastToolName = ''
-
-  startSpinner()
+  spinner.start()
 
   try {
     logDebug('Starting message processing loop')
-    
+
     for await (const event of gen) {
-       logInfo(`event type: "${event.type}"`)
+      logInfo(`event type: "${event.type}"`)
+      handleEvent(eventCtx, event)
+
       switch (event.type) {
-        case 'text_delta':
-          if (!gotFirstToken) {
-            gotFirstToken = true
-            stopSpinner()
-            logDebug('First token received, stopping spinner')
-          }
-          logInfo(`event text: "${event.text}"`)
-          process.stdout.write(event.text)
-          break
-
-        case 'tool_start':
-          if (lastToolName) process.stderr.write('\n')
-          lastToolName = event.name
-          process.stderr.write('  ' + event.name + '...')
-          logInfo(`Tool execution started: ${event.name}`)
-          break
-
-        case 'tool_result':
-          if (event.isError) {
-            process.stderr.write(' (fail)\n')
-            logWarning(`Tool failed: ${event.name}`, { error: event.content })
-          } else if (lastToolName === event.name) {
-            process.stderr.write(' (ok)\n')
-            logDebug(`Tool succeeded: ${event.name}`)
-          }
-          break
-
-        case 'usage':
-          totalInputTokens = event.totalInputTokens
-          totalOutputTokens = event.totalOutputTokens
-          logDebug(`Token usage: ${event.totalInputTokens} in / ${event.totalOutputTokens} out`)
-          break
-
-        case 'turn_end':
-          turnCount = event.turnCount
-          logDebug(`Turn ${event.turnCount} completed`)
-          break
-
-        case 'terminal':
-          stopSpinner()
-          lastToolName = ''
-          logInfo(`Conversation ended: ${event.reason}`, { 
-            turnCount: event.turnCount,
-            inputTokens: event.totalInputTokens,
-            outputTokens: event.totalOutputTokens
-          })
-
-          if (turnCount > 1) {
+        case 'terminal': {
+          if (eventCtx.turnCount > 1) {
             process.stderr.write(
               '\n  Tokens: ' +
-                totalInputTokens +
+                eventCtx.totalInputTokens +
                 ' in / ' +
-                totalOutputTokens +
+                eventCtx.totalOutputTokens +
                 ' out | ' +
-                turnCount +
+                eventCtx.turnCount +
                 ' turns\n',
             )
           }
@@ -432,122 +346,20 @@ async function runConversationTurn(
 
           persistConversationSnapshot(conversation)
           break
+        }
 
-        case 'error':
-          stopSpinner()
+        case 'error': {
           logError('Query error: ' + event.message)
           break
+        }
       }
     }
   } catch (err: unknown) {
-    stopSpinner()
+    spinner.stop()
     const msg = err instanceof Error ? err.message : String(err)
     logError('Conversation error: ' + msg)
     process.stderr.write(`\n  Error: ${msg}\n`)
   }
-}
-
-export interface ParsedCLIArgs {
-  promptArgs: string[]
-  resumeRequested: boolean
-  resumeSessionId?: string
-}
-
-export function parseCLIArgs(rawArgs: string[]): ParsedCLIArgs {
-  const promptArgs: string[] = []
-  let resumeRequested = false
-  let resumeSessionId: string | undefined
-
-  for (const arg of rawArgs) {
-    if (arg === '--resume') {
-      resumeRequested = true
-      continue
-    }
-
-    if (arg.startsWith('--resume=')) {
-      resumeRequested = true
-      const explicitSessionId = arg.slice('--resume='.length).trim()
-      if (explicitSessionId) {
-        resumeSessionId = explicitSessionId
-      }
-      continue
-    }
-
-    promptArgs.push(arg)
-  }
-
-  return {
-    promptArgs,
-    resumeRequested,
-    ...(resumeSessionId ? { resumeSessionId } : {}),
-  }
-}
-
-function resolveResumeSnapshot(
-  args: ParsedCLIArgs,
-): PersistedSessionSnapshot | null {
-  if (!args.resumeRequested) {
-    return null
-  }
-
-  if (args.resumeSessionId) {
-    return loadConversationSnapshot(args.resumeSessionId)
-  }
-
-  return loadLatestConversationSnapshot()
-}
-
-function restoreSnapshotCwd(
-  snapshot: PersistedSessionSnapshot | null,
-): boolean {
-  const snapshotCwd = snapshot?.cwd?.trim()
-  if (!snapshotCwd || !existsSync(snapshotCwd)) {
-    return false
-  }
-
-  try {
-    process.chdir(snapshotCwd)
-  } catch {}
-
-  setCwd(snapshotCwd)
-  return true
-}
-
-function createConversationFromSnapshot(
-  snapshot: PersistedSessionSnapshot | null,
-): ConversationBuffers {
-  if (!snapshot) {
-    return createConversationBuffers()
-  }
-
-  // Normalize messages to remove orphaned tool_results, empty messages, etc.
-  const normalizedMessages = normalizeMessages(snapshot.conversation.fullMessages)
-  const buffers = createConversationBuffers(normalizedMessages, {
-    compactBoundaries: snapshot.conversation.compactBoundaries,
-    forceCompactNextProjection:
-      snapshot.conversation.forceCompactNextProjection,
-    restoreToolResultBudgetState: true,
-    toolResultBudgetRecords: snapshot.conversation.toolResultBudgetRecords,
-  })
-
-  // Restore boundary tracking from the last compact boundary metadata
-  restoreLastSummarizedMessageIdFromBoundaries(buffers.compactBoundaries)
-
-  return buffers
-}
-
-function persistConversationSnapshot(conversation: ConversationBuffers): void {
-  const sessionId = getSessionMemoryId()
-  if (!sessionId) {
-    return
-  }
-
-  saveConversationSnapshot({
-    sessionId,
-    cwd: getCwd(),
-    model: resolveModel(),
-    conversation: serializeConversationBuffers(conversation),
-  })
 }
 
 function question(prompt: string): Promise<string | null> {
@@ -566,41 +378,6 @@ function question(prompt: string): Promise<string | null> {
     })
     rl.on('close', () => done(null))
   })
-}
-
-// Buffered JSON string per tool use (for diagnostic logging)
-const jsonBuf = new Map<string, string>()
-
-function safeJsonMerge(
-  existing: Record<string, unknown>,
-  partial: string,
-  toolUseId: string,
-): Record<string, unknown> {
-  const prev = jsonBuf.get(toolUseId) || ''
-
-  try {
-    const parsed = JSON.parse(partial) as Record<string, unknown>
-    // Merge with existing object to preserve previously accumulated fields
-    return { ...existing, ...parsed }
-  } catch {
-    // Log the unparseable partial for debugging
-    const snippet =
-      partial.length > 120 ? partial.slice(0, 120) + '...' : partial
-    process.stderr.write(
-      `[dbg] partial_json parse (len=${partial.length}): ${snippet}\n`,
-    )
-  }
-
-  const buf = prev + partial
-  jsonBuf.set(toolUseId, buf)
-
-  try {
-    const parsed = JSON.parse(buf) as Record<string, unknown>
-    jsonBuf.delete(toolUseId)
-    return { ...existing, ...parsed }
-  } catch {
-    return existing
-  }
 }
 
 main().catch(err => {
