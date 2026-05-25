@@ -34,6 +34,7 @@ import {
 } from '../services/mcp/mcpClient.js'
 import { loadConfig } from '../services/config/configManager.js'
 import { recoverPlanState } from '../services/planMode.js'
+import { enableV2 as enablePlanModeV2 } from '../services/planModeV2.js'
 import { query } from '../query.js'
 import { QueryEngine } from '../QueryEngine.js'
 import { stdin, stdout } from 'process'
@@ -89,6 +90,7 @@ async function main() {
     BUILD_TIME: new Date().toISOString(),
   }
   initializeTaskStore()
+  enablePlanModeV2()
 
   const cliArgs = parseCLIArgs(process.argv.slice(2))
   const args = cliArgs.promptArgs

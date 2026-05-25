@@ -6,12 +6,25 @@
 
 import { join } from 'path'
 import { savePlan, loadPlan, loadLatestPlan, updatePlanPhase, completePlan, cancelPlan, listPlans, generateSlug, getPlansDir, type PlanFile } from './planStore.js'
+import {
+  isV2Enabled,
+  getV2PhaseInstructions,
+  getV2PlanSummaryForPrompt,
+  notifyPhaseEnter,
+  notifyPhaseExit,
+  notifyPlanCreated,
+  notifyPlanCompleted,
+  buildPlanSummary,
+  registerAgentPlanContext,
+  getAgentPlanContext,
+} from './planModeV2.js'
 
 // ============================================================
-// Plan Phase Constants
+// Plan Phase Constants (extended with Phase 0 Interview)
 // ============================================================
 
 export const PLAN_PHASES = [
+  { phase: 0, name: 'Interview', description: 'Ask clarifying questions to understand requirements before planning' },
   { phase: 1, name: 'Explore', description: 'Explore the codebase using Explore agents' },
   { phase: 2, name: 'Design', description: 'Design implementation approach using Plan agents' },
   { phase: 3, name: 'Review', description: 'Review critical files and check alignment with requirements' },
@@ -58,19 +71,35 @@ export function getPlanResults(): string[] {
 /**
  * Enter plan mode with an initial plan proposal.
  * Persists the plan to disk and sets up in-memory state.
+ * When V2 interview phase is enabled, starts at phase 0.
  */
-export function enterPlanMode(plan: string, options?: { slug?: string }): { slug: string } {
+export function enterPlanMode(plan?: string, options?: {
+  slug?: string
+  startPhase?: number
+  title?: string
+  agentId?: string
+}): { slug: string } {
   isPlanMode = true
-  planContent = plan
+  planContent = plan ?? ''
   planResults = []
 
-  const persisted = savePlan(plan, {
+  const startPhase = options?.startPhase ?? (isV2Enabled() ? 0 : 1)
+  const title = options?.title ?? 'Plan'
+
+  const persisted = savePlan(plan ?? '', {
     slug: options?.slug,
-    title: 'Plan',
-    phase: 1,
+    title,
+    phase: startPhase,
   })
   planSlug = persisted.meta.slug
-  currentPhase = 1
+  currentPhase = startPhase
+
+  // Register agent context if agentId provided
+  if (options?.agentId) {
+    registerAgentPlanContext(options.agentId, planSlug, startPhase)
+  }
+
+  notifyPlanCreated(planSlug, title)
 
   return { slug: planSlug }
 }
@@ -82,6 +111,7 @@ export function enterPlanMode(plan: string, options?: { slug?: string }): { slug
 export function leavePlanMode(): void {
   isPlanMode = false
   if (planSlug) {
+    notifyPlanCompleted(planSlug)
     completePlan(planSlug)
   }
 }
@@ -95,18 +125,23 @@ export function addPlanResult(result: string): void {
 
 /**
  * Set the current phase of the plan.
- * Also persists to disk.
+ * Also persists to disk. Supports phase 0 (Interview).
+ * Fires V2 phase transition hooks if enabled.
  */
 export function setPlanPhase(phase: number): void {
-  const clampedPhase = Math.max(1, Math.min(5, phase))
+  const clampedPhase = Math.max(0, Math.min(5, phase))
+  const prevPhase = currentPhase
   currentPhase = clampedPhase
+
   if (planSlug) {
+    notifyPhaseExit(prevPhase, planSlug)
     updatePlanPhase(planSlug, clampedPhase)
+    notifyPhaseEnter(clampedPhase, planSlug)
   }
 }
 
 /**
- * Advance to the next phase.
+ * Advance to the next phase (0 → 5).
  */
 export function advancePlanPhase(): number {
   const next = Math.min(5, currentPhase + 1)
@@ -143,7 +178,7 @@ export function recoverPlanState(): boolean {
   isPlanMode = true
   planContent = latest.content
   planSlug = latest.meta.slug
-  currentPhase = latest.meta.currentPhase
+  currentPhase = latest.meta.currentPhase >= 0 ? latest.meta.currentPhase : 1
   planResults = []
 
   return true
@@ -151,10 +186,31 @@ export function recoverPlanState(): boolean {
 
 /**
  * Get the current plan summary for prompt injection.
+ * Delegates to V2 for enhanced summary when enabled.
  */
 export function getPlanSummary(): string {
   if (!isPlanMode) return ''
 
+  // V2 mode: use enhanced summary
+  if (isV2Enabled() && planSlug) {
+    const v2Summary = getV2PlanSummaryForPrompt(planSlug)
+    if (v2Summary) {
+      const phaseInfo = getCurrentPhaseInfo()
+      const extraLines: string[] = []
+      extraLines.push(`## Current Plan Mode`)
+      extraLines.push(`- Phase: ${phaseInfo.phase}/5 — ${phaseInfo.name}`)
+      extraLines.push(`- Plan slug: ${planSlug}`)
+      if (planContent) {
+        extraLines.push(`- Plan: ${planContent.slice(0, 500)}${planContent.length > 500 ? '...' : ''}`)
+      }
+      if (planResults.length > 0) {
+        extraLines.push(`- Steps completed: ${planResults.length}`)
+      }
+      return v2Summary + '\n' + extraLines.join('\n')
+    }
+  }
+
+  // Legacy mode
   const phaseInfo = getCurrentPhaseInfo()
   const lines: string[] = []
   lines.push(`## Current Plan Mode`)
@@ -172,10 +228,17 @@ export function getPlanSummary(): string {
 
 /**
  * Get the plan mode workflow instructions for the given phase.
+ * Uses V2 enhanced instructions when V2 mode is enabled.
  */
 export function getPlanPhaseInstructions(): string {
   if (!isPlanMode) return ''
 
+  // V2 mode: delegate to planModeV2 for enhanced instructions
+  if (isV2Enabled()) {
+    return getV2PhaseInstructions(currentPhase, planSlug, undefined)
+  }
+
+  // Legacy mode (preserved for backward compatibility)
   const phaseInfo = getCurrentPhaseInfo()
   const pendingPhases = PLAN_PHASES.filter(p => p.phase >= currentPhase)
 
@@ -199,6 +262,19 @@ export function getPlanPhaseInstructions(): string {
   lines.push('')
 
   switch (currentPhase) {
+    case 0:
+      lines.push('### Phase 0: Interview')
+      lines.push('- Use **AskUserQuestion** to ask clarifying questions about the task:')
+      lines.push('  - What are the exact requirements and acceptance criteria?')
+      lines.push('  - Are there any constraints or preferences (performance, security, compatibility)?')
+      lines.push('  - What is the priority: correctness, speed, maintainability?')
+      lines.push('  - Are there existing patterns or designs to follow?')
+      lines.push('- Ask questions one at a time to keep the conversation focused')
+      lines.push('- Collect the answers and incorporate them into the plan')
+      lines.push('- When you have enough clarity, advance to Phase 1: Explore')
+      lines.push('')
+      lines.push('IMPORTANT: Do NOT skip to exploring yet. First gather requirements.')
+      break
     case 1:
       lines.push('### Phase 1: Explore')
       lines.push('- **Launch multiple Explore agents in parallel** (2-3) to understand the codebase from different angles:')

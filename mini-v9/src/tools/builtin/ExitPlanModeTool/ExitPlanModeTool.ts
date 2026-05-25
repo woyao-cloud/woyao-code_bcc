@@ -9,6 +9,7 @@ import {
   getPlanFilePath,
   isInPlanMode,
 } from '../../../services/planMode.js'
+import { isV2Enabled, buildPlanSummary } from '../../../services/planModeV2.js'
 
 export const ExitPlanModeTool: Tool = {
   name: 'ExitPlanMode',
@@ -16,7 +17,8 @@ export const ExitPlanModeTool: Tool = {
     'Exit plan mode after completing the planning process. ' +
     'Present the final plan for user approval. ' +
     'Before calling this tool, ensure Phase 4 (writing the plan file) is complete. ' +
-    'The plan, results, and file path will be included in the response.',
+    'The plan, results, and file path will be included in the response. ' +
+    'In V2 mode, includes enhanced approval summary with execution plan details.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -25,6 +27,11 @@ export const ExitPlanModeTool: Tool = {
         description:
           'Complete summary of the agreed plan: what will be implemented, ' +
           'key files to modify, implementation order, and any architectural decisions.',
+      },
+      implementation_steps: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Ordered list of implementation steps for execution tracking (V2 mode).',
       },
     },
     required: ['summary'],
@@ -68,6 +75,7 @@ export const ExitPlanModeTool: Tool = {
     const slug = getPlanSlug()
     const planContent = getPlanContent()
     const results = getPlanResults()
+    const implementationSteps = input.implementation_steps as string[] | undefined
 
     const lines: string[] = [
       '## Plan Complete — Ready for Approval',
@@ -76,6 +84,31 @@ export const ExitPlanModeTool: Tool = {
       planFilePath ? `Plan file: ${planFilePath}` : '',
       '',
     ]
+
+    // V2 mode: enhanced approval summary
+    if (isV2Enabled() && slug) {
+      const v2Summary = buildPlanSummary(slug)
+      if (v2Summary) {
+        lines.push('### Execution Plan')
+        lines.push(`- Status: ${v2Summary.status}`)
+        lines.push(`- Phase completed: ${v2Summary.phase} — ${v2Summary.phaseName}`)
+        lines.push(`- Steps identified: ${v2Summary.stepCount}`)
+        lines.push(`- Created: ${v2Summary.createdAt}`)
+        lines.push(`- Last updated: ${v2Summary.updatedAt}`)
+        lines.push('')
+      }
+    }
+
+    // Implementation steps
+    if (implementationSteps && implementationSteps.length > 0) {
+      lines.push('### Implementation Steps')
+      lines.push('These steps should be executed in order after plan approval:')
+      lines.push('')
+      implementationSteps.forEach((step, i) => {
+        lines.push(`${i + 1}. ${step}`)
+      })
+      lines.push('')
+    }
 
     // Plan content section
     if (planContent) {
@@ -90,7 +123,7 @@ export const ExitPlanModeTool: Tool = {
     // Execution results (steps completed)
     if (results.length > 0) {
       lines.push('')
-      lines.push('### Steps Completed')
+      lines.push('### Steps Completed During Planning')
       results.forEach((r, i) => lines.push(`${i + 1}. ${r}`))
     }
 
