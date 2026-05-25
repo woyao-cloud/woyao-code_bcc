@@ -73,6 +73,7 @@ import { readInput } from '../ui/input.js'
 import { createSpinner } from '../ui/spinner.js'
 import { createUIStateManager } from '../ui/state.js'
 import { createEventContext, handleEvent } from '../ui/events.js'
+import { createStatusBar } from '../ui/statusBar.js'
 import { green, yellow, dim, cyan } from '../ui/format.js'
 
 // Module-level cache for loaded plugins
@@ -296,6 +297,7 @@ async function runConversationTurn(
   const spinner = createSpinner()
   const stateManager = createUIStateManager()
   const eventCtx = createEventContext(spinner, stateManager)
+  const statusBar = createStatusBar(stateManager)
 
   logInfo(`User input received: "${preprompt?.substring(0, 50)}${preprompt && preprompt.length > 50 ? '...' : ''}"`)
 
@@ -316,6 +318,7 @@ async function runConversationTurn(
       })
 
   spinner.start()
+  statusBar.start()
 
   try {
     logDebug('Starting message processing loop')
@@ -326,6 +329,8 @@ async function runConversationTurn(
 
       switch (event.type) {
         case 'terminal': {
+          statusBar.stop()
+
           if (eventCtx.turnCount > 1) {
             process.stderr.write(
               '\n  Tokens: ' +
@@ -353,12 +358,14 @@ async function runConversationTurn(
         }
 
         case 'error': {
+          statusBar.stop()
           logError('Query error: ' + event.message)
           break
         }
       }
     }
   } catch (err: unknown) {
+    statusBar.stop()
     spinner.stop()
     const msg = err instanceof Error ? err.message : String(err)
     logError('Conversation error: ' + msg)

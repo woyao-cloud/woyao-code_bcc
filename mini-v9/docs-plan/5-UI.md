@@ -190,3 +190,30 @@
   Dependencies: cli-highlight@^2.1.11 added to package.json
 
   Tests: 660 pass, 1 fail (pre-existing) — no regressions.
+
+
+ Phase 5 complete. Here's what was done:
+
+  Created src/ui/dialogs/types.ts — PermissionChoice type ('allow' | 'deny' | 'always_allow' | 'always_deny')
+
+  Created src/ui/dialogs/permissionDialog.ts — ANSI box-drawing dialog rendered to stderr:
+  ┌─────── Permission Required ────────┐
+  │ Tool: Bash                          │
+  │ Execute a shell command             │
+  │                                     │
+  │ Input:                              │
+  │ {"command":"echo hello"}           │
+  │                                     │
+  │ (y) Allow    (n) Deny              │
+  │ (a) Always Allow  (d) Always Deny  │
+  └─────────────────────────────────────┘
+  - Key bindings: y allow, n deny, a always allow, d always deny, Enter allow, Escape deny
+  - Auto-clears dialog after selection via ANSI cursor movement
+  - Non-TTY fallback: auto-allow
+  - Respects stdin.isRaw handling
+
+  Modified src/services/permission/permissionManager.ts:
+  - Removed readline.createInterface() import (now zero readline dependency)
+  - Replaced askUser() with showPermissionDialog()
+  - Added sessionDenials cache alongside existing sessionApprovals
+  - Cleaner switch on PermissionChoice
