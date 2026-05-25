@@ -44,6 +44,7 @@ import {
   setExecuteToolListProvider,
 } from './builtin/ExecuteTool/ExecuteTool.js'
 import { SyntheticOutputTool } from './builtin/SyntheticOutputTool/SyntheticOutputTool.js'
+import { WorkflowTool } from './builtin/WorkflowTool/WorkflowTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
 import { isDeferredTool } from './builtin/SearchExtraToolsTool/prompt.js'
@@ -100,6 +101,7 @@ export function getAllBaseTools(): Tool[] {
     CronCreateTool,
     CronDeleteTool,
     CronListTool,
+    WorkflowTool,
     // Deferred tool discovery
     SearchExtraToolsTool,
     ExecuteTool,
