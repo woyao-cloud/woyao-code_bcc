@@ -238,3 +238,37 @@ export interface AgentTaskState {
   /** Whether a task-notification has already been sent */
   notified: boolean
 }
+
+// ---------- Fork / Worktree ----------
+
+/** Isolation mode for forked agents */
+export type IsolationMode = 'none' | 'worktree'
+
+/**
+ * Configuration for forking a subagent.
+ * Forking allows creating a subagent that shares the parent's
+ * system prompt prefix (cache-identical) but has its own context.
+ */
+export interface ForkConfig {
+  /** Whether to fork the agent (share system prompt for cache efficiency) */
+  enabled: boolean
+  /** Isolation mode for safe experimentation */
+  isolation: IsolationMode
+  /** Max turns for the forked agent */
+  maxTurns?: number
+  /** Model override for the forked agent */
+  model?: string
+}
+
+/**
+ * Configuration for worktree isolation.
+ * Worktrees provide filesystem isolation for safe agent experimentation.
+ */
+export interface WorktreeConfig {
+  /** Branch name for the worktree */
+  branch: string
+  /** Whether to auto-remove the worktree on completion */
+  autoRemove: boolean
+  /** Whether to discard uncommitted changes on remove */
+  discardChanges: boolean
+}

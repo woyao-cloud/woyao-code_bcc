@@ -7,7 +7,8 @@
 
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
 import { runAgentSync, runAgentAsync } from '../../../agents/agentRunner.js'
-import type { AgentResult, AgentTaskState } from '../../../agents/agentTypes.js'
+import { runForkedAgent } from '../../../agents/forkSubagent.js'
+import type { AgentResult, AgentTaskState, ForkConfig } from '../../../agents/agentTypes.js'
 import { getAgent } from '../../../agents/agentRegistry.js'
 
 /** AgentTool input schema */
@@ -39,6 +40,19 @@ const AGENT_TOOL_SCHEMA = {
       type: 'boolean',
       description:
         'Set to true to run this agent in the background. The agent will be fire-and-forget, and results will be delivered via task-notification.',
+    },
+    fork: {
+      type: 'boolean',
+      description:
+        'Set to true to fork this agent as a subprocess that shares the parent\'s system prompt prefix for cache efficiency. ' +
+        'Useful for parallel research agents that explore different aspects of the same codebase.',
+    },
+    isolation: {
+      type: 'string',
+      enum: ['none', 'worktree'],
+      description:
+        'Isolation mode for safe agent experimentation. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo. ' +
+        'The worktree is automatically cleaned up when done.',
     },
   },
   required: ['subagent_type', 'description', 'prompt'],
@@ -116,10 +130,10 @@ function formatAsyncResult(
 export const AgentTool: Tool = {
   name: 'Agent',
   description:
-    'Spawn a subagent to handle complex, multi-step research or implementation tasks autonomously. Available agent types: Explore (codebase search), Plan (planning), general-purpose (research + implementation), worker (coordinator tasks), Verify (code review). Use run_in_background: true for non-blocking execution.',
+    'Spawn a subagent to handle complex, multi-step research or implementation tasks autonomously. Available agent types: Explore (codebase search), Plan (planning), general-purpose (research + implementation), worker (coordinator tasks), Verify (code review). Use run_in_background: true for non-blocking execution. Use fork: true to share the parent system prompt prefix for cache-efficient parallel agents. Use isolation: "worktree" for safe filesystem experimentation in a temporary git worktree.',
   inputSchema: AGENT_TOOL_SCHEMA,
   prompt:
-    'Use the Agent tool to spawn subagents for complex tasks. Each subagent runs autonomously with its own context, tools, and constraints. Choose the right agent type for the task: Explore for codebase searching, Plan for planning, general-purpose for research/implementation, Verify for code review. Set run_in_background: true to run without blocking.',
+    'Use the Agent tool to spawn subagents for complex tasks. Each subagent runs autonomously with its own context, tools, and constraints. Choose the right agent type for the task: Explore for codebase searching, Plan for planning, general-purpose for research/implementation, Verify for code review. Set run_in_background: true to run without blocking. Set fork: true to share the parent system prompt for cache-efficient parallel execution.',
   isConcurrencySafe: () => false,
   isReadOnly: () => false,
   isDestructive: () => false,
@@ -132,6 +146,8 @@ export const AgentTool: Tool = {
     const prompt = String(input.prompt ?? '')
     const model = input.model ? String(input.model) : undefined
     const runInBackground = input.run_in_background === true
+    const fork = input.fork === true
+    const isolation = String(input.isolation ?? 'none')
 
     if (!prompt) {
       return {
@@ -163,6 +179,25 @@ export const AgentTool: Tool = {
           toolUseId: ctx.toolUse.id,
         })
         return formatAsyncResult(agentType, taskState)
+      }
+
+      // Fork mode: share parent system prompt for cache efficiency
+      if (fork) {
+        const forkConfig: ForkConfig = {
+          enabled: true,
+          isolation: isolation === 'worktree' ? 'worktree' : 'none',
+          maxTurns: agentDef.maxTurns,
+          model: model,
+        }
+
+        const result = await runForkedAgent({
+          agentType,
+          prompt,
+          parentMessages: ctx.messages,
+          forkConfig,
+          model,
+        })
+        return formatSyncResult(description, result)
       }
 
       const result: AgentResult = await runAgentSync({

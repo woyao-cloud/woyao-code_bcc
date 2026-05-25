@@ -42,6 +42,7 @@ import type {
   AgentTaskState,
 } from './agentTypes.js'
 import { getAgent } from './agentRegistry.js'
+import { shouldSummarize, buildAgentProgressSummary } from './agentSummarization.js'
 import type { Tool, ToolUseContext } from '../Tool.js'
 import type { ContentItem } from '../types/message.js'
 import type {
@@ -564,6 +565,24 @@ async function runAgentLoopCore(params: AgentLoopParams): Promise<AgentResult> {
         role: 'user',
         content: toolResults,
       })
+
+      // Periodic summarization hook
+      if (shouldSummarize(turnCount) && params.onProgress) {
+        const summary = buildAgentProgressSummary(
+          instanceId,
+          turnCount,
+          totalInputTokens + totalOutputTokens,
+          totalToolUseCount,
+          contentOutput,
+        )
+        params.onProgress({
+          turnCount,
+          totalTokens: totalInputTokens + totalOutputTokens,
+          toolUseCount: totalToolUseCount,
+          lastActivity: Date.now(),
+          summary: summary.summary,
+        })
+      }
     }
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err)

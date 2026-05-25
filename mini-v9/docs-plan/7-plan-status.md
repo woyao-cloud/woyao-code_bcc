@@ -36,3 +36,34 @@
   ├───────┼──────────────────┼────────────────────────────────────────────────────┤
   │ 6     │ GSD 工作流       │ 结构化的开发 slash commands                        │
   └───────┴──────────────────┴────────────────────────────────────────────────────┘
+#
+
+ Phase 2 (WorkflowTool) is fully implemented:
+
+  - WorkflowTool.ts — Tool with 6 actions: create (define phases+steps), update (step status/result/assignee), update_status (workflow-level), list (with optional filter),
+  get (full details), progress (formatted report)
+  - tools.ts — Registered WorkflowTool in getAllBaseTools()
+  - workflowStore.test.ts — 20 tests covering CRUD, auto-completion, progress, filtering, timestamps, assignee
+  - toolsRegistry.test.ts — Updated tool count to 40 and added Workflow assertion
+
+  All new tests pass. Ready for Phase 3-6 when you want to continue.
+
+#
+   Phase 3 complete. Here's what was implemented:
+
+  New files:
+  - src/agents/forkSubagent.ts — Fork subagent infrastructure: runForkedAgent() for cache-efficient parallel agents (shares parent system prompt prefix),
+  createWorktreeIsolation() for safe filesystem experimentation, buildParentToolResultReplacements() for stable context replay
+  - src/agents/agentSummarization.ts — Periodic agent progress summarization: buildAgentProgressSummary() for snapshots, shouldSummarize() at configurable intervals,
+  formatSummaryForNotification() for delivery format
+
+  Modified files:
+  - src/agents/agentTypes.ts — Added ForkConfig, WorktreeConfig, IsolationMode types
+  - src/agents/agentRunner.ts — Integrated summarization hooks in the core loop (periodic onProgress callbacks every 5 turns)
+  - src/agents/agentRegistry.ts — Added getAgentMCPServers() and getAllAgentMCPServerNames() for agent-level MCP server resolution
+  - src/agents/index.ts — Exports new modules
+  - src/tools/builtin/AgentTool/AgentTool.ts — Added fork (boolean) and isolation (none/worktree) parameters, routes to runForkedAgent() when fork is enabled
+
+  New tests:
+  - agentSummarization.test.ts — 9 tests: summary generation, truncation, notification formatting, interval checking
+  - forkSubagent.test.ts — 5 tests: worktree isolation creation, custom branches, config resolution

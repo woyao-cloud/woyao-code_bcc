@@ -199,6 +199,33 @@ export function getAgentTypeNames(): string[] {
   return Array.from(agentRegistry.keys())
 }
 
+// ---------- Agent-level MCP Server Resolution ----------
+
+/**
+ * Get MCP server names configured for a specific agent.
+ * Returns empty array if no MCP servers are configured.
+ */
+export function getAgentMCPServers(agentType: string): string[] {
+  const agent = agentRegistry.get(agentType)
+  return agent?.mcpServers ?? []
+}
+
+/**
+ * Get the union of all MCP server names across all registered agents.
+ * Useful for pre-connecting all agent-level MCP servers on startup.
+ */
+export function getAllAgentMCPServerNames(): string[] {
+  const allNames = new Set<string>()
+  for (const agent of agentRegistry.values()) {
+    if (agent.mcpServers) {
+      for (const name of agent.mcpServers) {
+        allNames.add(name)
+      }
+    }
+  }
+  return Array.from(allNames)
+}
+
 // ---------- File-based Agent Loading ----------
 
 /**
