@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { getTools, getToolsMap } from '../tools/tools.js'
 
 describe('getTools', () => {
-  test('returns 40 tools', () => {
+  test('returns 43 tools', () => {
     const tools = getTools()
-    expect(tools.length).toBe(40)
+    expect(tools.length).toBe(43)
   })
 
   test('all tools have required name', () => {
@@ -56,11 +56,14 @@ describe('getTools', () => {
     expect(toolNames).toContain('TaskStop')
   })
 
-  test('includes apply patch, skill, and workflow tools', () => {
+  test('includes apply patch, skill, workflow, and monitoring tools', () => {
     const toolNames = getTools().map(t => t.name)
     expect(toolNames).toContain('ApplyPatch')
     expect(toolNames).toContain('Skill')
     expect(toolNames).toContain('Workflow')
+    expect(toolNames).toContain('Monitor')
+    expect(toolNames).toContain('LocalMemoryRecall')
+    expect(toolNames).toContain('CtxInspect')
   })
 
   test('no duplicate tool names', () => {

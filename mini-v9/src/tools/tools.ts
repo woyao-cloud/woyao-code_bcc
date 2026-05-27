@@ -45,6 +45,9 @@ import {
 } from './builtin/ExecuteTool/ExecuteTool.js'
 import { SyntheticOutputTool } from './builtin/SyntheticOutputTool/SyntheticOutputTool.js'
 import { WorkflowTool } from './builtin/WorkflowTool/WorkflowTool.js'
+import { MonitorTool } from './builtin/MonitorTool/MonitorTool.js'
+import { LocalMemoryRecallTool } from './builtin/LocalMemoryRecallTool/LocalMemoryRecallTool.js'
+import { CtxInspectTool } from './builtin/CtxInspectTool/CtxInspectTool.js'
 import { createMCPToolWrapper } from './builtin/MCPTool/MCPTool.js'
 import type { MCPEntry } from '../services/mcp/mcpClient.js'
 import { isDeferredTool } from './builtin/SearchExtraToolsTool/prompt.js'
@@ -102,6 +105,9 @@ export function getAllBaseTools(): Tool[] {
     CronDeleteTool,
     CronListTool,
     WorkflowTool,
+    MonitorTool,
+    LocalMemoryRecallTool,
+    CtxInspectTool,
     // Deferred tool discovery
     SearchExtraToolsTool,
     ExecuteTool,
