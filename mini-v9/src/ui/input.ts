@@ -1,4 +1,5 @@
 import { stdin, stdout } from 'process'
+import { emitKeypressEvents } from 'node:readline'
 
 const ESC = '\x1b'
 const CSI = ESC + '['
@@ -386,8 +387,9 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
       }
     }
 
-    // Listen for keypress events
-    if (typeof stdin.on === 'function' && typeof stdin.setRawMode === 'function') {
+    // Use emitKeypressEvents to parse raw bytes into key objects
+    emitKeypressEvents(stdin)
+    if (typeof stdin.setRawMode === 'function') {
       try {
         stdin.setRawMode(true)
         stdin.resume()
@@ -395,10 +397,10 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
         // Ignore
       }
     }
-    stdin.on('data', onKeyPress)
+    stdin.on('keypress', onKeyPress)
 
     function cleanup() {
-      stdin.removeListener('data', onKeyPress)
+      stdin.removeListener('keypress', onKeyPress)
       try {
         stdin.setRawMode(false)
       } catch {
