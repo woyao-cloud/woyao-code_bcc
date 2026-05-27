@@ -385,6 +385,12 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
         process.stderr.write(buf.render())
         return
       }
+      // Fallback: raw string for chars keypress didn't name ('.'→'period', etc.)
+      if (_ && _.length > 0 && !key?.ctrl && !key?.meta && _ !== keyName) {
+        buf.insert(_)
+        process.stderr.write(buf.render())
+        return
+      }
     }
 
     // Use emitKeypressEvents to parse raw bytes into key objects
@@ -399,8 +405,27 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
     }
     stdin.on('keypress', onKeyPress)
 
+    // IME input handler: catch multi-byte UTF-8 (Chinese, emoji) that
+    // emitKeypressEvents does NOT convert to keypress events.
+    // Only processes non-ASCII bytes to avoid duplicating keypress.
+    const onRawData = (data: Buffer) => {
+      if (!active || !data || data.length === 0) return
+      let hasNonAscii = false
+      for (let i = 0; i < data.length; i++) {
+        if (data[i]! >= 0x80) { hasNonAscii = true; break }
+      }
+      if (!hasNonAscii) return
+      const str = data.toString('utf-8')
+      for (const ch of str) {
+        if (ch >= ' ' || ch === '\n') buf.insert(ch)
+      }
+      process.stderr.write(buf.render())
+    }
+    stdin.on('data', onRawData)
+
     function cleanup() {
       stdin.removeListener('keypress', onKeyPress)
+      stdin.removeListener('data', onRawData)
       try {
         stdin.setRawMode(false)
       } catch {
