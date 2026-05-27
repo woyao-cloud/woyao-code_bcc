@@ -43,15 +43,86 @@ export function toolsToOpenAIFormat(
 }
 
 /**
- * Convert internal messages to OpenAI chat format
+ * Convert internal messages (Anthropic format) to OpenAI chat format.
+ *
+ * Key conversions:
+ *   - assistant msg with tool_use blocks → { role, content, tool_calls }
+ *   - user msg with tool_result blocks  → { role: 'tool', tool_call_id, content }
+ *   - simple messages pass through as-is
  */
 export function messagesToOpenAIFormat(
   messages: Array<{ role: string; content: unknown }>,
-): Array<{ role: string; content: unknown }> {
-  return messages.map(m => ({
-    role: m.role as 'user' | 'assistant' | 'system',
-    content: m.content,
-  }))
+): Array<Record<string, unknown>> {
+  const result: Array<Record<string, unknown>> = []
+
+  for (const m of messages) {
+    // Assistant message with content array (may contain tool_use blocks)
+    if (m.role === 'assistant' && Array.isArray(m.content)) {
+      const textParts: string[] = []
+      const toolCalls: Array<Record<string, unknown>> = []
+
+      for (const block of m.content) {
+        const b = block as Record<string, unknown>
+        if (b.type === 'text') {
+          if (typeof b.text === 'string') textParts.push(b.text)
+        } else if (b.type === 'tool_use') {
+          toolCalls.push({
+            id: b.id,
+            type: 'function',
+            function: {
+              name: b.name,
+              arguments: JSON.stringify(b.input ?? {}),
+            },
+          })
+        }
+      }
+
+      if (toolCalls.length > 0) {
+        result.push({
+          role: 'assistant',
+          content: textParts.join('') || null,
+          tool_calls: toolCalls,
+        })
+      } else {
+        result.push({
+          role: 'assistant',
+          content: textParts.join('') || '',
+        })
+      }
+      continue
+    }
+
+    // User message with tool_result blocks → OpenAI 'tool' role
+    if (m.role === 'user' && Array.isArray(m.content)) {
+      const toolResults = m.content.filter(
+        (c: unknown) =>
+          typeof c === 'object' && c !== null && (c as Record<string, unknown>).type === 'tool_result',
+      )
+
+      if (toolResults.length > 0) {
+        for (const tr of toolResults) {
+          const trBlock = tr as Record<string, unknown>
+          result.push({
+            role: 'tool',
+            tool_call_id: trBlock.tool_use_id,
+            content:
+              typeof trBlock.content === 'string'
+                ? trBlock.content
+                : JSON.stringify(trBlock.content),
+          })
+        }
+        continue
+      }
+    }
+
+    // Default pass-through
+    result.push({
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+    })
+  }
+
+  return result
 }
 
 export interface OpenAIStreamChunk {

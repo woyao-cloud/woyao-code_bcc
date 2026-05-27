@@ -99,19 +99,32 @@ export async function* openAIToAnthropicStream(
         const state = toolCallStates.get(tc.index)
 
         if (!state) {
-          // New tool call starting
+          // New tool call starting — some models (DeepSeek, Ollama) send
+          // id + name + arguments in a single chunk; OpenAI spreads across
+          // multiple chunks. Emit content_block_start immediately once we
+          // have id+name, not deferred to the next chunk.
           if (tc.id && tc.function?.name) {
             contentBlockIndex++
-            const newState = {
+            toolCallStates.set(tc.index, {
               id: tc.id,
               name: tc.function.name,
-              started: false,
-            }
-            toolCallStates.set(tc.index, newState)
+              started: true, // Mark started immediately
+            })
+            // Emit content_block_start right away
+            yield {
+              type: 'content_block_start',
+              index: contentBlockIndex,
+              content_block: {
+                type: 'tool_use',
+                id: tc.id,
+                name: tc.function.name,
+                input: {},
+              },
+            } as BetaRawMessageStreamEvent
             logInfo(`Tool call detected: ${tc.function.name}`)
           }
         } else if (!state.started) {
-          // Emit content_block_start for this tool
+          // Legacy path: models that send id+name in a separate chunk
           state.started = true
           yield {
             type: 'content_block_start',
