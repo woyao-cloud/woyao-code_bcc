@@ -165,6 +165,27 @@ export function getEstimatedContextWindow(model?: string): number {
   return Math.max(ESTIMATED_MAX_TOKENS, getMaxTokens(model))
 }
 
+/**
+ * Estimate token growth from a single turn (user msg + assistant response + tool results).
+ * Used by predictive autocompact to determine if next turn will overflow the context window.
+ * ~3000 tokens is a conservative baseline; larger models tend to produce longer responses.
+ */
+export function estimateMaxTurnGrowth(model?: string): number {
+  const window = getEstimatedContextWindow(model)
+  if (window >= 800_000) return 5000
+  if (window >= 200_000) return 4000
+  return 3000
+}
+
+/**
+ * Effective context window size (total capacity, no buffer subtracted).
+ * The predictive check subtracts estimatedTurnGrowth from this value
+ * to decide when to compact preemptively.
+ */
+export function getEffectiveContextWindowSize(model?: string): number {
+  return getEstimatedContextWindow(model)
+}
+
 function getToolUseNameMap(messages: BetaMessageParam[]): Map<string, string> {
   const toolNames = new Map<string, string>()
 

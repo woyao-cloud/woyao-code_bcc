@@ -513,3 +513,4 @@ set ANTHROPIC_BASE_URL = http://localhost:11434
 
 
 bun test src/__tests__/retry.test.ts 2>&1
+bun test src/__tests__/retry.test.ts src/__tests__/autoCompact.test.ts src/__tests__/query.test.ts src/__tests__/toolsRegistry.test.ts 2>&1 | Select-String

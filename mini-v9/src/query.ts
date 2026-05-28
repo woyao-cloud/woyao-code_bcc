@@ -2,7 +2,7 @@ import { streamClaudeAPI } from './services/api/claude.js'
 import { resolveModel } from './utils/model/model.js'
 import { getPermissionMode } from './utils/settings/settings.js'
 import { requestPermission } from './services/permission/permissionManager.js'
-import { retryWithBackoff } from './services/retry.js'
+import { retryWithBackoff, classifyAPIError } from './services/retry.js'
 import type { RetryEvent } from './services/retry.js'
 import { logError, logInfo, logWarning, logDebug, logTiming } from './utils/log.js'
 import { createDefaultTurnLimitManager } from './utils/turnLimit.js'
@@ -18,6 +18,7 @@ import {
   reactiveCompact,
   isPromptTooLongError,
 } from './services/compact/reactiveCompact.js'
+import { estimateMaxTurnGrowth } from './services/compact/autoCompact.js'
 import { getSystemContext } from './context.js'
 import { getCwd } from './bootstrap/state.js'
 import type { Tool, ToolUseContext, ToolResult } from './Tool.js'
@@ -35,6 +36,7 @@ import {
 
 export interface QueryOptions {
   model?: string
+  fallbackModel?: string
   maxTurns?: number
   abortSignal?: AbortSignal
   isInteractive?: boolean
@@ -60,6 +62,7 @@ export async function* query(
 
   const conversation: ConversationBuffers = createConversationBuffers(messages)
   let hasAttemptedReactiveCompact = false
+  let hasAttemptedFallback = false
   let recoveryCount = 0
   let lastMaxTokensOutputTokens = 0
   const DEFAULT_MAX_TOKENS = 32000
@@ -91,13 +94,28 @@ export async function* query(
       return
     }
 
-    const activeModel = options.model ?? resolveModel()
+    let activeModel = options.model ?? resolveModel()
     logDebug(`Using model: ${activeModel}`)
     
-    const { messagesForAPI } = projectMessagesForAPI(conversation, {
+    let { messagesForAPI, estimatedTokens, estimatedHeadroom } = projectMessagesForAPI(conversation, {
       model: activeModel,
       commitCompactionToConversation: true,
     })
+
+    // Predictive autocompact: if next turn's estimated growth would overflow
+    // the context window, compact preemptively to avoid prompt-too-long errors.
+    const growthEstimate = estimateMaxTurnGrowth(activeModel)
+    if (estimatedHeadroom < growthEstimate) {
+      logInfo(`Predictive autocompact: headroom=${estimatedHeadroom} < growth=${growthEstimate}, forcing compact`)
+      const projected = projectMessagesForAPI(conversation, {
+        model: activeModel,
+        forceCompact: true,
+        commitCompactionToConversation: true,
+      })
+      if (projected.estimatedTokens < estimatedTokens) {
+        messagesForAPI = projected.messagesForAPI
+      }
+    }
 
     logDebug(`Messages for API: ${messagesForAPI.length}`, { 
       totalMessages: conversation.fullMessages.length 
@@ -295,6 +313,23 @@ export async function* query(
           yield {
             type: 'error',
             message: 'Recovery compact triggered, retrying...',
+          }
+          continue
+        }
+      }
+
+      // Model fallback: if retryWithBackoff exhausted but the error is a
+      // server-side issue (503 overloaded, etc.) and a fallback model is
+      // configured, switch models and retry.
+      if (!hasAttemptedFallback && options.fallbackModel && activeModel !== options.fallbackModel) {
+        const category = classifyAPIError(streamError)
+        if (category === 'server_error' || category === 'rate_limit' || category === 'connection_error') {
+          hasAttemptedFallback = true
+          activeModel = options.fallbackModel
+          logWarning(`Falling back to model: ${activeModel} after error: ${category}`)
+          yield {
+            type: 'error',
+            message: `Switching to fallback model (${activeModel}) due to ${category}...`,
           }
           continue
         }
