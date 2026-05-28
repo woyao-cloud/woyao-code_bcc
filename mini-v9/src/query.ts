@@ -14,6 +14,7 @@ import {
 } from './services/messages/apiProjection.js'
 import { createToolResultBudgetState } from './services/compact/autoCompact.js'
 import { runPostCompactCleanup } from './services/compact/postCompactCleanup.js'
+import { applyStagedFolding } from './services/compact/stagedCompact.js'
 import {
   reactiveCompact,
   isPromptTooLongError,
@@ -104,7 +105,31 @@ export async function* query(
 
     let activeModel = options.model ?? resolveModel()
     logDebug(`Using model: ${activeModel}`)
-    
+
+    // Staged context folding: proactively fold conversation as context usage grows.
+    // Applied before projection so the projection pipeline sees already-folded messages.
+    // Skips early turns (need enough messages / stable model) and respects circuit-breaker.
+    if (turnCount > 2 && conversation.fullMessages.length > 6) {
+      try {
+        const foldResult = await applyStagedFolding(conversation.fullMessages, activeModel)
+        if (foldResult.didFold) {
+          conversation.fullMessages.length = 0
+          conversation.fullMessages.push(...foldResult.messages)
+          messages.length = 0
+          messages.push(...foldResult.messages)
+          conversation.messageUuids.length = Math.min(
+            conversation.messageUuids.length,
+            foldResult.messages.length,
+          )
+          conversation.toolResultBudgetState = createToolResultBudgetState()
+          conversation.forceCompactNextProjection = false
+          logInfo(`Staged fold applied: stage=${foldResult.stage} usage=${foldResult.usagePercent.toFixed(0)}%`)
+        }
+      } catch (err) {
+        logWarning('Staged folding failed, continuing with existing messages', { error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
     let { messagesForAPI, estimatedTokens, estimatedHeadroom } = projectMessagesForAPI(conversation, {
       model: activeModel,
       commitCompactionToConversation: true,
