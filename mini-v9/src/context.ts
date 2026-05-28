@@ -1,5 +1,7 @@
 import { loadClaudeMdFiles } from './utils/claudemd.js'
-import { getGitStatus, GitStatus } from './utils/git.js'
+import { getGitStatus, GitStatus, getGitState } from './utils/git.js'
+import { readGitUserConfig } from './utils/gitSettings.js'
+import { execFileNoThrow } from './utils/execFileNoThrow.js'
 import { getCwd } from './bootstrap/state.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { isAsyncAgent } from './utils/agentContext.js'
@@ -269,6 +271,16 @@ export async function getEnhancedContext(
       }
       if (gitStatus.hasUnpushedCommits) {
         gitParts.push('Has unpushed commits')
+      }
+      // Recent commits
+      const { stdout: logOut } = await execFileNoThrow(
+        'git',
+        ['log', '--oneline', '-3', '--no-decorate'],
+        { cwd },
+      )
+      const recentCommits = logOut.trim().split('\n').filter(Boolean)
+      if (recentCommits.length > 0) {
+        gitParts.push(`Recent: ${recentCommits.join(' | ')}`)
       }
       candidateParts.git =
         gitParts.length > 0 ? `Git: ${gitParts.join('; ')}` : undefined
@@ -983,6 +995,8 @@ function cloneEnhancedContext(value: EnhancedContext): EnhancedContext {
 export async function getGitContext(): Promise<string> {
   const cwd = getCwd()
   const gitStatus = await getGitStatus(cwd)
+  const userConfig = await readGitUserConfig(cwd)
+  const gitState = await getGitState(cwd)
 
   if (!gitStatus.isGit) {
     return 'Not in a git repository'
@@ -1003,25 +1017,30 @@ export async function getGitContext(): Promise<string> {
   if (gitStatus.remoteUrl) {
     parts.push(`Remote: ${gitStatus.normalizedRemoteUrl}`)
   }
+  if (userConfig.userName) {
+    parts.push(`User: ${userConfig.userName}`)
+  }
   parts.push(`Working Tree: ${gitStatus.isClean ? 'Clean' : 'Dirty'}`)
 
-  if (gitStatus.hasStagedChanges) {
-    parts.push('- Has staged changes')
-  }
-  if (gitStatus.hasUnstagedChanges) {
-    parts.push('- Has unstaged changes')
-  }
-  if (gitStatus.hasUntrackedFiles) {
-    parts.push('- Has untracked files')
-  }
-  if (gitStatus.ahead > 0) {
-    parts.push(`- ${gitStatus.ahead} commits ahead of origin`)
-  }
-  if (gitStatus.behind > 0) {
-    parts.push(`- ${gitStatus.behind} commits behind origin`)
-  }
-  if (gitStatus.hasUnpushedCommits) {
-    parts.push('- Has unpushed commits')
+  if (gitStatus.hasStagedChanges) parts.push('- Has staged changes')
+  if (gitStatus.hasUnstagedChanges) parts.push('- Has unstaged changes')
+  if (gitStatus.hasUntrackedFiles) parts.push('- Has untracked files')
+  if (gitStatus.ahead > 0) parts.push(`- ${gitStatus.ahead} commits ahead of origin`)
+  if (gitStatus.behind > 0) parts.push(`- ${gitStatus.behind} commits behind origin`)
+  if (gitStatus.hasUnpushedCommits) parts.push('- Has unpushed commits')
+
+  // Add recent commits (max 5)
+  if (gitState) {
+    const { stdout: logOut } = await execFileNoThrow(
+      'git',
+      ['log', '--oneline', '-5', '--no-decorate'],
+      { cwd },
+    )
+    const recentCommits = logOut.trim().split('\n').filter(Boolean)
+    if (recentCommits.length > 0) {
+      parts.push('Recent commits:')
+      parts.push(recentCommits.map(c => `  ${c}`).join('\n'))
+    }
   }
 
   return parts.join('\n')

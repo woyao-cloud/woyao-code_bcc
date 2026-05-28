@@ -65,6 +65,8 @@ export interface AgentRunOptions {
   maxTurns?: number
   /** Model override */
   model?: string
+  /** CWD override (e.g., for worktree isolation) */
+  cwdOverride?: string
   /** Callback for each message (streaming) */
   onMessage?: (text: string) => void
   /** Permission check override */
@@ -127,7 +129,7 @@ export async function runAgentSync(
   const instanceId = randomUUID()
   const maxTurns = options.maxTurns ?? agentDef.maxTurns ?? 25
   const model = options.model ?? agentDef.model ?? resolveModel()
-  const cwd = getCwd()
+  const cwd = options.cwdOverride ?? getCwd()
   const startTime = Date.now()
 
   // Get filtered tools for this agent
@@ -199,7 +201,7 @@ export function runAgentAsync(options: AgentRunOptions): AgentTaskState {
   const instanceId = randomUUID()
   const maxTurns = options.maxTurns ?? agentDef.maxTurns ?? 25
   const model = options.model ?? agentDef.model ?? resolveModel()
-  const cwd = getCwd()
+  const cwd = options.cwdOverride ?? getCwd()
   const startTime = Date.now()
 
   // Async agents get an independent AbortController (survives parent ESC)

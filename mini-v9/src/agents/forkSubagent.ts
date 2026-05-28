@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Fork subagent for cache-efficient parallel execution.
  * A forked subagent shares the parent's system prompt prefix so that
  * the API prefix cache is identical, while having its own message context.
@@ -9,6 +9,8 @@ import { randomUUID } from 'crypto'
 import { runAgentSync, type AgentRunOptions } from './agentRunner.js'
 import type { AgentResult, ForkConfig, WorktreeConfig } from './agentTypes.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
+import { getCwd } from '../bootstrap/state.js'
+import { createWorktree, removeWorktree } from '../utils/worktree.js'
 
 // ============================================================
 // Fork API
@@ -35,12 +37,31 @@ export interface ForkSubagentOptions {
  * Run a forked subagent that shares the parent's context prefix.
  * The forked agent gets its own message list but uses the same
  * system prompt for cache efficiency.
+ * When forkConfig.isolation === 'worktree', creates an isolated
+ * worktree for safe experimentation.
  */
 export async function runForkedAgent(options: ForkSubagentOptions): Promise<AgentResult> {
   const { agentType, prompt, parentMessages, forkConfig, model, onProgress } = options
 
   // Build parent tool result replacements for stable replay
   const parentToolResultReplacements = buildParentToolResultReplacements(parentMessages)
+
+  // If worktree isolation is configured, create the worktree
+  let worktreePath: string | undefined
+  let cleanupWorktree = false
+  if (forkConfig.isolation === 'worktree' && options.worktreeConfig) {
+    const cwd = getCwd()
+    const path = `${cwd}/.claude/worktrees/${options.worktreeConfig.branch}`
+    const created = await createWorktree(cwd, {
+      branch: options.worktreeConfig.branch,
+      path,
+      autoRemove: options.worktreeConfig.autoRemove,
+    })
+    if (created) {
+      worktreePath = created
+      cleanupWorktree = options.worktreeConfig.discardChanges ?? true
+    }
+  }
 
   const runOptions: AgentRunOptions = {
     agent: agentType,
@@ -49,6 +70,8 @@ export async function runForkedAgent(options: ForkSubagentOptions): Promise<Agen
     parentToolResultReplacements,
     maxTurns: forkConfig.maxTurns,
     model: model ?? forkConfig.model,
+    // Point the agent to the worktree if created
+    cwdOverride: worktreePath,
   }
 
   if (onProgress) {
@@ -59,10 +82,17 @@ export async function runForkedAgent(options: ForkSubagentOptions): Promise<Agen
     }
   }
 
-  // Run the forked agent
-  const result = await runAgentSync(runOptions)
-
-  return result
+  try {
+    const result = await runAgentSync(runOptions)
+    return result
+  } finally {
+    // Clean up worktree when isolation is enabled with discardChanges
+    if (worktreePath && cleanupWorktree) {
+      // Use force removal for worktrees with changes
+      const cwd = getCwd()
+      await removeWorktree(cwd, worktreePath, true).catch(() => {})
+    }
+  }
 }
 
 /**
@@ -94,7 +124,7 @@ export function createWorktreeIsolation(
 // ============================================================
 
 /**
- * Build a map of parent tool-use-id → tool-result content for stable replay
+ * Build a map of parent tool-use-id 鈫?tool-result content for stable replay
  * in forked contexts. This allows the forked agent to "see" the results of
  * parent tool calls without re-executing them.
  */
@@ -113,7 +143,7 @@ function buildParentToolResultReplacements(
         const text = typeof block.content === 'string'
           ? block.content
           : Array.isArray(block.content)
-            ? block.content.map(c => (typeof c === 'string' ? c : c.text ?? '')).join('\n')
+            ? block.content.map(c => (typeof c === 'string' ? c : (c as Record<string, unknown>).text ?? '')).join('\n')
             : ''
         replacements.set(block.tool_use_id, text)
       }

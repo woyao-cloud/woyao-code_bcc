@@ -32,6 +32,9 @@ import { BriefTool } from './builtin/BriefTool/BriefTool.js'
 import { NotebookEditTool } from './builtin/NotebookEditTool/NotebookEditTool.js'
 import { LSPTool } from './builtin/LSPTool/LSPTool.js'
 import { WebBrowserTool } from './builtin/WebBrowserTool/WebBrowserTool.js'
+import { GitDiffTool } from './builtin/GitDiffTool/GitDiffTool.js'
+import { GitLogTool } from './builtin/GitLogTool/GitLogTool.js'
+import { GitStatusTool } from './builtin/GitStatusTool/GitStatusTool.js'
 import { CronCreateTool } from './builtin/CronCreateTool/CronCreateTool.js'
 import { CronDeleteTool } from './builtin/CronDeleteTool/CronDeleteTool.js'
 import { CronListTool } from './builtin/CronListTool/CronListTool.js'
@@ -108,6 +111,10 @@ export function getAllBaseTools(): Tool[] {
     MonitorTool,
     LocalMemoryRecallTool,
     CtxInspectTool,
+    // Git tools
+    GitDiffTool,
+    GitLogTool,
+    GitStatusTool,
     // Deferred tool discovery
     SearchExtraToolsTool,
     ExecuteTool,

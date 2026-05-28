@@ -1,6 +1,7 @@
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
 import { execFileNoThrow } from '../../../utils/execFileNoThrow.js'
 import { getCwd } from '../../../bootstrap/state.js'
+import { isCurrentDirectoryBareGitRepo } from '../../../utils/git.js'
 const DEFAULT_TIMEOUT_MS = 120_000
 export const BashTool: Tool = {
   name: 'Bash',
@@ -26,11 +27,23 @@ export const BashTool: Tool = {
     const cmd = String(input.command ?? '')
     if (!cmd.trim())
       return { content: 'No command', success: false, error: 'Empty' }
+
+    // Bare-repo detection: prevent sandbox escape via bare git repos
+    const targetCwd = ctx.cwd || getCwd()
+    const isBare = await isCurrentDirectoryBareGitRepo(targetCwd)
+    if (isBare) {
+      return {
+        content: 'Command blocked: bare git repository detected. Bare repos have no working tree and can be used for sandbox escape.',
+        success: false,
+        error: 'Bare git repository detected',
+      }
+    }
+
     const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash'
     const args = process.platform === 'win32' ? ['/c', cmd] : ['-c', cmd]
     try {
       const r = await execFileNoThrow(shell, args, {
-        cwd: ctx.cwd || getCwd(),
+        cwd: targetCwd,
         timeout: Number(input.timeout) || DEFAULT_TIMEOUT_MS,
       })
       return {
