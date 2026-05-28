@@ -28,6 +28,11 @@ import type {
   BetaRawMessageStreamEvent,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import type { QueryEvent } from './query/transitions.js'
+import {
+  calculateCacheHitRate,
+  shouldShowCacheWarning,
+  formatCacheWarning,
+} from './utils/cacheWarning.js'
 import { persistLargeToolResult } from './services/toolResultStorage.js'
 import {
   orchestrateToolExecution,
@@ -59,6 +64,9 @@ export async function* query(
   const turnLimitManager = createDefaultTurnLimitManager(options.maxTurns ?? 50)
   let totalInputTokens = 0
   let totalOutputTokens = 0
+  let totalCacheCreationInputTokens = 0
+  let totalCacheReadInputTokens = 0
+  const QUERY_SOURCE = 'default'
 
   const conversation: ConversationBuffers = createConversationBuffers(messages)
   let hasAttemptedReactiveCompact = false
@@ -266,6 +274,14 @@ export async function* query(
             case 'message_delta': {
               totalInputTokens += evt.usage?.input_tokens ?? 0
               totalOutputTokens += evt.usage.output_tokens
+              totalCacheCreationInputTokens = Math.max(
+                totalCacheCreationInputTokens,
+                evt.usage?.cache_creation_input_tokens ?? 0,
+              )
+              totalCacheReadInputTokens = Math.max(
+                totalCacheReadInputTokens,
+                evt.usage?.cache_read_input_tokens ?? 0,
+              )
               if (evt.delta?.stop_reason) {
                 stopReason = evt.delta.stop_reason
               }
@@ -295,7 +311,7 @@ export async function* query(
 
       if (isPromptTooLongError(msg) && !hasAttemptedReactiveCompact) {
         hasAttemptedReactiveCompact = true
-        const result = reactiveCompact(conversation.fullMessages)
+        const result = await reactiveCompact(conversation.fullMessages)
         if (result.didCompact) {
           conversation.fullMessages.length = 0
           conversation.fullMessages.push(...result.messages)
@@ -450,6 +466,23 @@ export async function* query(
       outputTokens: totalOutputTokens,
       totalInputTokens,
       totalOutputTokens,
+    }
+
+    // Check cache hit rate and yield warning if low
+    const cacheUsage = {
+      input_tokens: totalInputTokens,
+      cache_creation_input_tokens: totalCacheCreationInputTokens,
+      cache_read_input_tokens: totalCacheReadInputTokens,
+    }
+    const cacheWarningInfo = shouldShowCacheWarning(cacheUsage, QUERY_SOURCE)
+    if (cacheWarningInfo) {
+      yield {
+        type: 'cache_warning' as const,
+        hitRate: cacheWarningInfo.hitRate,
+        threshold: cacheWarningInfo.threshold,
+        trend: cacheWarningInfo.trend,
+        message: formatCacheWarning(cacheWarningInfo),
+      }
     }
 
     // Warn if model returned nothing useful

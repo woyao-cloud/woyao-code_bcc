@@ -70,6 +70,14 @@ export interface QueryRetryEvent {
   delayMs: number
 }
 
+export interface QueryCacheWarning {
+  readonly type: 'cache_warning'
+  hitRate: number
+  threshold: number
+  trend: number | null
+  message: string
+}
+
 export type QueryEvent =
   | QueryTextDelta
   | QueryToolStart
@@ -80,3 +88,4 @@ export type QueryEvent =
   | QueryError
   | QueryRecovery
   | QueryRetryEvent
+  | QueryCacheWarning
