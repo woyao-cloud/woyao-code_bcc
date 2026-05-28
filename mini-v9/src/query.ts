@@ -19,6 +19,11 @@ import {
   reactiveCompact,
   isPromptTooLongError,
 } from './services/compact/reactiveCompact.js'
+import {
+  isPromptTooLongMessage,
+  getPromptTooLongTokenGap,
+  getAssistantMessageFromError,
+} from './services/api/errors.js'
 import { estimateMaxTurnGrowth } from './services/compact/autoCompact.js'
 import { getSystemContext } from './context.js'
 import { getCwd } from './bootstrap/state.js'
@@ -73,6 +78,7 @@ export async function* query(
   let hasAttemptedReactiveCompact = false
   let hasAttemptedFallback = false
   let recoveryCount = 0
+  let hasAttemptedMaxTokensEscalation = false
   let lastMaxTokensOutputTokens = 0
   const DEFAULT_MAX_TOKENS = 32000
   const ESCALATED_MAX_TOKENS = 64000
@@ -334,16 +340,16 @@ export async function* query(
       const msg = streamError.message
       logError(`Query error: ${msg}`)
 
+      // Stage 1: Reactive compact for PTL errors
       if (isPromptTooLongError(msg) && !hasAttemptedReactiveCompact) {
         hasAttemptedReactiveCompact = true
+        yield { type: 'error', message: 'Prompt too long, attempting compaction recovery...' }
         const result = await reactiveCompact(conversation.fullMessages)
         if (result.didCompact) {
           conversation.fullMessages.length = 0
           conversation.fullMessages.push(...result.messages)
-          // Sync messages array (cli's conversation reference) to match compacted state
           messages.length = 0
           messages.push(...result.messages)
-          // Trim UUIDs to match new message count
           conversation.messageUuids.length = Math.min(
             conversation.messageUuids.length,
             result.messages.length,
@@ -352,16 +358,15 @@ export async function* query(
           conversation.forceCompactNextProjection = false
           runPostCompactCleanup()
           yield {
-            type: 'error',
-            message: 'Recovery compact triggered, retrying...',
+            type: 'recovery' as const,
+            reason: 'max_tokens_continue',
+            attempt: 1,
           }
           continue
         }
       }
 
-      // Model fallback: if retryWithBackoff exhausted but the error is a
-      // server-side issue (503 overloaded, etc.) and a fallback model is
-      // configured, switch models and retry.
+      // Model fallback for server/rate limit/connection errors
       if (!hasAttemptedFallback && options.fallbackModel && activeModel !== options.fallbackModel) {
         const category = classifyAPIError(streamError)
         if (category === 'server_error' || category === 'rate_limit' || category === 'connection_error') {
@@ -376,6 +381,7 @@ export async function* query(
         }
       }
 
+      // All recovery exhausted — surface error
       yield { type: 'error', message: msg }
       yield {
         type: 'terminal',
@@ -412,13 +418,44 @@ export async function* query(
       return
     }
 
-    // max_output_tokens recovery: model was cut off mid-response
-    // Includes diminishing returns detection: if delta < 500 tokens, stop recovery
+    // max_output_tokens recovery: 2-stage approach
+    // Stage 3: Escalate 32K→64K silently (no recovery message, just retry with higher budget)
+    // Stage 4: Recovery meta-messages with diminishing returns detection
     if (
       stopReason === 'max_tokens' &&
-      recoveryCount < 3 &&
+      recoveryCount < 4 &&
       toolUses.length === 0
     ) {
+      const partialContent: ContentItem[] = contentBlocks.map(b =>
+        b.type === 'tool_use'
+          ? {
+              type: 'tool_use' as const,
+              id: b.id,
+              name: b.name,
+              input: b.input,
+            }
+          : { type: 'text' as const, text: b.text },
+      )
+      if (partialContent.length > 0) {
+        const partialMsg = { role: 'assistant' as const, content: partialContent }
+        messages.push(partialMsg)
+        pushMessageWithUuid(conversation, partialMsg)
+      }
+
+      // Stage 3: First max_tokens hit — escalate 32K→64K without recovery message
+      if (!hasAttemptedMaxTokensEscalation && recoveryCount === 0) {
+        hasAttemptedMaxTokensEscalation = true
+        recoveryCount++
+        logInfo('Max tokens escalation: retrying with 64K budget')
+        yield {
+          type: 'recovery' as const,
+          reason: 'max_tokens_escalate',
+          attempt: 1,
+        }
+        continue
+      }
+
+      // Stage 4: Recovery messages with diminishing returns detection
       // Diminishing returns: token delta too small, model can't make progress
       if (lastMaxTokensOutputTokens > 0) {
         const delta = totalOutputTokens - lastMaxTokensOutputTokens
@@ -441,24 +478,9 @@ export async function* query(
       }
       lastMaxTokensOutputTokens = totalOutputTokens
 
-      const partialContent: ContentItem[] = contentBlocks.map(b =>
-        b.type === 'tool_use'
-          ? {
-              type: 'tool_use' as const,
-              id: b.id,
-              name: b.name,
-              input: b.input,
-            }
-          : { type: 'text' as const, text: b.text },
-      )
-      if (partialContent.length > 0) {
-        const partialMsg = { role: 'assistant' as const, content: partialContent }
-        messages.push(partialMsg)
-        pushMessageWithUuid(conversation, partialMsg)
-      }
       const recoveryMsg =
-        recoveryCount === 0
-          ? '[Response cut off by output token limit. Increase token budget and continue from where you left off.]'
+        recoveryCount === 1
+          ? '[Response cut off by output token limit. Continue from where you left off — do not summarize.]'
           : '[Response cut off again. Continue your response from where you were interrupted.]'
       const recoveryUserMsg = { role: 'user' as const, content: recoveryMsg }
       messages.push(recoveryUserMsg)
@@ -467,7 +489,7 @@ export async function* query(
       yield {
         type: 'recovery' as const,
         reason: 'max_tokens_continue',
-        attempt: recoveryCount,
+        attempt: recoveryCount - 1,
       }
       continue
     }
@@ -524,6 +546,34 @@ export async function* query(
       const assistantMsg = { role: 'assistant' as const, content: assistantContent }
       messages.push(assistantMsg)
       pushMessageWithUuid(conversation, assistantMsg)
+    }
+
+    // Post-stream PTL detection: check if the assistant response contains
+    // a prompt-too-long error that was returned as a successful stream
+    // (e.g., from AI proxies that transform PTL into 200 responses).
+    if (toolUses.length === 0 && !hasAttemptedReactiveCompact) {
+      const contentText = textDeltas.join('')
+      const isPTLContent = contentText.includes('Prompt is too long') || contentText.includes('prompt is too long')
+      if (isPTLContent) {
+        hasAttemptedReactiveCompact = true
+        logInfo('Post-stream PTL detected, attempting reactive compact')
+        yield { type: 'error', message: 'Recovery compact triggered for PTL response...' }
+        const result = await reactiveCompact(conversation.fullMessages)
+        if (result.didCompact) {
+          conversation.fullMessages.length = 0
+          conversation.fullMessages.push(...result.messages)
+          messages.length = 0
+          messages.push(...result.messages)
+          conversation.messageUuids.length = Math.min(
+            conversation.messageUuids.length,
+            result.messages.length,
+          )
+          conversation.toolResultBudgetState = createToolResultBudgetState()
+          conversation.forceCompactNextProjection = false
+          runPostCompactCleanup()
+          continue
+        }
+      }
     }
 
     if (toolUses.length === 0) {

@@ -15,6 +15,12 @@ export interface RetryOptions {
   maxRetries?: number
   baseDelayMs?: number
   maxDelayMs?: number
+  /** Persistent mode: extend retry count for connection errors */
+  persistent?: boolean
+  /** Optional signal to abort retry loop externally */
+  signal?: AbortSignal
+  /** Called when an auth error occurs that might be OAuth-refreshable */
+  onAuthError?: () => Promise<void>
 }
 
 export interface RetryEvent {
@@ -24,6 +30,14 @@ export interface RetryEvent {
   error: string
   category: ErrorCategory
   delayMs: number
+}
+
+/** Extended retry event for cooldown / overload scenarios */
+export interface RetryCooldownEvent {
+  type: 'cooldown'
+  reason: 'fast_mode' | 'overload'
+  durationMs: number
+  message: string
 }
 
 // ============================================================
@@ -184,6 +198,56 @@ export function calculateBackoff(
 }
 
 // ============================================================
+// Enhanced error detection
+// ============================================================
+
+/**
+ * Detect stale/TLS connection errors. These are often transient
+ * and benefit from extended retry (persistent mode).
+ */
+export function isStaleConnectionError(err: Error): boolean {
+  const msg = err.message.toLowerCase()
+  return (
+    msg.includes('ssl') ||
+    msg.includes('tls') ||
+    msg.includes('certificate') ||
+    msg.includes('cert') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('socket') ||
+    msg.includes('write epipe') ||
+    msg.includes('broken pipe') ||
+    msg.includes('unexpected EOF')
+  )
+}
+
+/**
+ * Check if error indicates a server overload (529).
+ */
+export function isServerOverloadError(err: Error): boolean {
+  const msg = err.message.toLowerCase()
+  const status = (err as unknown as Record<string, unknown>).status as number | undefined
+  return (
+    status === 529 ||
+    msg.includes('529') ||
+    msg.includes('overloaded') ||
+    msg.includes('service unavailable')
+  )
+}
+
+/**
+ * Check if error is an OAuth-refreshable auth error.
+ */
+export function isOAuthRefreshableError(err: Error): boolean {
+  const msg = err.message.toLowerCase()
+  const status = (err as unknown as Record<string, unknown>).status as number | undefined
+  return (
+    (status === 401 || msg.includes('401')) &&
+    (msg.includes('oauth') || msg.includes('token') || msg.includes('unauthorized'))
+  )
+}
+
+// ============================================================
 // Retry Generator
 // ============================================================
 
@@ -206,10 +270,21 @@ export function calculateBackoff(
 export async function* retryWithBackoff<T>(
   fn: () => AsyncGenerator<T>,
   options: RetryOptions = {},
-): AsyncGenerator<RetryEvent | T> {
-  const maxRetries = options.maxRetries ?? 3
+): AsyncGenerator<RetryEvent | RetryCooldownEvent | T> {
+  const baseMaxRetries = options.maxRetries ?? 3
+  // Persistent mode: double retries for connection errors
+  const effectiveMaxRetries =
+    options.persistent ? baseMaxRetries * 2 : baseMaxRetries
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  let consecutiveOverloads = 0
+  const OVERLOAD_THRESHOLD = 2 // enter cooldown after 2 overload errors
+
+  for (let attempt = 0; attempt <= effectiveMaxRetries; attempt++) {
+    // Check abort signal
+    if (options.signal?.aborted) {
+      throw new Error('Request was aborted.')
+    }
+
     try {
       const gen = fn()
       for await (const value of gen) {
@@ -220,8 +295,56 @@ export async function* retryWithBackoff<T>(
       const lastError = err instanceof Error ? err : new Error(String(err))
       const category = classifyAPIError(lastError)
 
-      if (category === 'aborted' || !isRetryableCategory(category) || attempt >= maxRetries) {
+      if (category === 'aborted') {
         throw lastError
+      }
+
+      // OAuth token refresh on auth errors
+      if (category === 'auth_error' && isOAuthRefreshableError(lastError)) {
+        if (options.onAuthError) {
+          await options.onAuthError()
+          // Retry immediately after refresh
+          continue
+        }
+      }
+
+      // Persistent mode: extend retry for stale connections
+      if (options.persistent && isStaleConnectionError(lastError)) {
+        // Still use backoff but don't count toward normal retries
+        const delayMs = calculateBackoff(category, attempt, lastError)
+        yield {
+          type: 'retry' as const,
+          attempt: attempt + 1,
+          maxRetries: effectiveMaxRetries,
+          error: lastError.message,
+          category,
+          delayMs,
+        }
+        await sleep(delayMs)
+        if (attempt >= baseMaxRetries) continue // beyond normal limit — keep going in persistent mode
+      }
+
+      if (!isRetryableCategory(category) || attempt >= effectiveMaxRetries) {
+        throw lastError
+      }
+
+      // Server overload cooldown detection
+      if (isServerOverloadError(lastError)) {
+        consecutiveOverloads++
+        if (consecutiveOverloads >= OVERLOAD_THRESHOLD) {
+          const cooldownMs = 10_000
+          yield {
+            type: 'cooldown' as const,
+            reason: 'overload',
+            durationMs: cooldownMs,
+            message: 'Server overloaded, cooling down before retry...',
+          }
+          await sleep(cooldownMs)
+          consecutiveOverloads = 0
+          continue
+        }
+      } else {
+        consecutiveOverloads = 0
       }
 
       const delayMs = calculateBackoff(category, attempt, lastError)
@@ -229,7 +352,7 @@ export async function* retryWithBackoff<T>(
       yield {
         type: 'retry' as const,
         attempt: attempt + 1,
-        maxRetries,
+        maxRetries: effectiveMaxRetries,
         error: lastError.message,
         category,
         delayMs,
@@ -251,6 +374,10 @@ export interface LegacyRetryOptions {
   baseDelayMs?: number
   maxDelayMs?: number
   onRetry?: (attempt: number, error: Error) => void
+  /** Persistent mode: extend retries for connection errors */
+  persistent?: boolean
+  /** Called when an auth error occurs that might be OAuth-refreshable */
+  onAuthError?: () => Promise<void>
 }
 
 /**
@@ -261,19 +388,31 @@ export async function withRetry<T>(
   fn: () => Promise<T>,
   options: LegacyRetryOptions = {},
 ): Promise<T> {
-  const maxRetries = options.maxRetries ?? 3
+  const baseMaxRetries = options.maxRetries ?? 3
+  const effectiveMaxRetries =
+    options.persistent ? baseMaxRetries * 2 : baseMaxRetries
   const baseDelay = options.baseDelayMs ?? 1000
   const maxDelay = options.maxDelayMs ?? 30000
 
   let lastError: Error | undefined
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt <= effectiveMaxRetries; attempt++) {
     try {
       return await fn()
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
 
-      if (attempt < maxRetries) {
+      // OAuth token refresh on auth errors
+      if (
+        attempt < effectiveMaxRetries &&
+        isOAuthRefreshableError(lastError) &&
+        options.onAuthError
+      ) {
+        await options.onAuthError()
+        continue // retry immediately after refresh
+      }
+
+      if (attempt < effectiveMaxRetries) {
         const delay = Math.min(baseDelay * 2 ** attempt, maxDelay)
         options.onRetry?.(attempt + 1, lastError)
         await sleep(delay)
