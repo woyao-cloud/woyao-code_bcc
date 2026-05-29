@@ -61,3 +61,18 @@ AI 助手的跨会话记忆是这个项目的关键差异化能力。本章剖�
 ### 第 8 章：设计权衡与演进
 
 回顾全书中关键的设计决策，分析每个决策背后的 trade-off：为什么选择 Bun 而非 Node.js？为什么使用 Ink 而非 TUI 框架？Feature Flag 的颗粒度如何把握？同时与 Cline、Aider、Codex CLI 等竞品进行横向对比，最后讨论项目的演进路线图。
+
+---
+
+## 文件索引
+
+| 章节 | 文件 | 专注重点 |
+|------|------|---------|
+| 第 1 章 | [01-项目概览与架构总览.md](01-项目概览与架构总览.md) | Feature Flag、架构分层、技术栈 |
+| 第 2 章 | [02-Agent核心运行循环.md](02-Agent核心运行循环.md) | 消息准备、System Prompt、流式API、工具调度 ⭐ |
+| 第 3 章 | [03-多层Context管理机制.md](03-多层Context管理机制.md) | Compaction、Token Budget、Prompt Cache ⭐ |
+| 第 4 章 | [04-Memory体系与个性配置.md](04-Memory体系与个性配置.md) | CLAUDE.md、extractMemories、Hooks ⭐ |
+| 第 5 章 | [05-Agent埋点与可观测性.md](05-Agent埋点与可观测性.md) | logAPIQuery、归因追踪、评测对接 |
+| 第 6 章 | [06-C端体验关键指标优化.md](06-C端体验关键指标优化.md) | TTFT、降级策略、静默失败检测 |
+| 第 7 章 | [07-多Agent协作架构.md](07-多Agent协作架构.md) | AgentTool、工具过滤、Fork、Coordinator ⭐ |
+| 第 8 章 | [08-全链路流程追踪.md](08-全链路流程追踪.md) | 从输入到输出的完整链路追踪 |
