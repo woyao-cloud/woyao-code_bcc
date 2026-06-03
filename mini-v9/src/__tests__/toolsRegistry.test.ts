@@ -82,7 +82,8 @@ describe('getToolsMap', () => {
   })
 
   test('has same count as tool list', () => {
-    expect(getToolsMap().size).toBe(getTools().length)
+    const map = getToolsMap()
+    expect(map.size).toBe(getTools().length)
   })
 
   test('maps tool names to tool objects', () => {

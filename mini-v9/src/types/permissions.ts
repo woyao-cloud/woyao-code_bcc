@@ -48,15 +48,26 @@ export type AdditionalWorkingDirectory = {
   source: string
 }
 
+export type ToolPermissionRulesBySource = Record<string, string[]>
+
 export type ToolPermissionContext = {
   readonly mode: PermissionMode
   readonly additionalWorkingDirectories: ReadonlyMap<
     string,
     AdditionalWorkingDirectory
   >
-  readonly alwaysAllowRules: Record<string, string[]>
-  readonly alwaysDenyRules: Record<string, string[]>
+  readonly alwaysAllowRules: ToolPermissionRulesBySource
+  readonly alwaysDenyRules: ToolPermissionRulesBySource
   readonly isBypassPermissionsModeAvailable: boolean
+  /** When true, permission prompts are auto-denied (e.g., background agents) */
+  readonly shouldAvoidPermissionPrompts?: boolean
+  /** When true, automated checks are awaited before dialog */
+  readonly awaitAutomatedChecksBeforeDialog?: boolean
+  /** Permission mode before plan mode entry, restored on exit */
+  readonly prePlanMode?: PermissionMode
+  readonly alwaysAskRules?: ToolPermissionRulesBySource
+  readonly strippedDangerousRules?: ToolPermissionRulesBySource
+  readonly isAutoModeAvailable?: boolean
 }
 
 export function getEmptyToolPermissionContext(): ToolPermissionContext {

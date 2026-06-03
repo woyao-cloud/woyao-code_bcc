@@ -7,7 +7,7 @@ import type {
   ToolPermissionContext,
   PermissionResult,
 } from './types/permissions.js'
-import type { AssistantMessage, Message } from './types/message.js'
+import type { AssistantMessage, Message, SystemMessage } from './types/message.js'
 import type {
   TypedTool,
   ToolConfig,
@@ -16,6 +16,7 @@ import type {
   ToolExecutionMetadata,
   ToolExecutionHistoryEntry,
 } from './types/tool.js'
+import type { QueryChainTracking, AgentId } from './types/ids.js'
 import { randomUUID } from './utils/crypto.js'
 
 // ============================================================
@@ -34,6 +35,8 @@ export type ToolInputSchema = {
 
 /**
  * Context passed to tool during execution
+ * Aligned with full-version ToolUseContext — all new fields are optional (?)
+ * for backward compatibility with existing tools.
  */
 export interface ToolUseContext {
   /** The tool use block being executed */
@@ -50,10 +53,46 @@ export interface ToolUseContext {
   messages: Message[]
   /** Whether running in interactive mode */
   isInteractive: boolean
+
+  // ===== Full-version aligned fields (all optional) =====
+
+  /** Current tool list (as readonly array, full-version compat) */
+  tools?: Tools
+
+  /** Session configuration options */
+  options?: {
+    commands?: unknown[]
+    tools?: Tools
+    mainLoopModel?: string
+    verbose?: boolean
+    mcpClients?: unknown[]
+    mcpResources?: Record<string, unknown[]>
+    debug?: boolean
+  }
+
+  /** Append a system message to the REPL message list */
+  appendSystemMessage?: (msg: SystemMessage) => void
+
+  /** Agent identity (set for subagents) */
+  agentId?: AgentId
+  /** Agent type name */
+  agentType?: string
+
+  /** Query chain tracking for subagent nesting */
+  queryTracking?: QueryChainTracking
+
+  /** MCP server connections */
+  mcpClients?: unknown[]
+  /** MCP server resources */
+  mcpResources?: Record<string, unknown[]>
+
+  /** Tool use ID for the current tool call */
+  toolUseId?: string
 }
 
 /**
- * Result of a tool execution
+ * Result of a tool execution (existing compatible type).
+ * All 47 built-in tools return this type.
  */
 export interface ToolResult {
   /** Content to send back to the model */
@@ -69,12 +108,65 @@ export interface ToolResult {
 }
 
 /**
- * Result of tool input validation
+ * Generic tool result aligned with full-version ToolResult<T>.
+ * New tools should use this for type-safe outputs.
  */
-export interface ValidationResult {
-  valid: boolean
+export interface ToolResultV2<T = unknown> {
+  /** Typed result data */
+  data: T
+  /** Whether execution succeeded */
+  success: boolean
+  /** Optional error message */
   error?: string
+  /** Optional metadata */
+  metadata?: Record<string, unknown>
+  /** New messages to inject into conversation */
+  newMessages?: (import('./types/message.js').UserMessage | AssistantMessage | SystemMessage)[]
+  /** Context modifier function */
+  contextModifier?: (context: ToolUseContext) => ToolUseContext
+  /** MCP protocol metadata */
+  mcpMeta?: {
+    _meta?: Record<string, unknown>
+    structuredContent?: Record<string, unknown>
+  }
 }
+
+/**
+ * Convert ToolResult to ToolResultV2 for API compatibility
+ */
+export function toolResultToV2(result: ToolResult): ToolResultV2<string> {
+  return {
+    data: result.content,
+    success: result.success,
+    error: result.error,
+    metadata: result.metadata,
+  }
+}
+
+/**
+ * Convert ToolResultV2 to ToolResult for backward compat
+ */
+export function toolResultV2ToContent(result: ToolResultV2<string>): ToolResult {
+  return {
+    content: result.data,
+    success: result.success,
+    error: result.error,
+    metadata: result.metadata,
+  }
+}
+
+/**
+ * Result of tool input validation
+ * Aligned with full-version ValidationResult
+ */
+export type ValidationResult =
+  | { result: true }
+  | { result: false; message: string; errorCode: number }
+
+// ============================================================
+// Tool interface — keep simple interface for existing tools,
+// add full-version optional methods for future alignment
+// ============================================================
 
 /**
  * A Tool that can be invoked by the model
@@ -119,7 +211,7 @@ export interface Tool {
   /** Deprecation message if applicable */
   deprecationMessage?: string
 
-  // ----- Concurrency & Safety (Phase 1 additions) -----
+  // ===== Concurrency & Safety (full-version aligned) =====
 
   /** Whether this tool is safe to run concurrently with others */
   isConcurrencySafe?(input: Record<string, unknown>): boolean
@@ -143,7 +235,7 @@ export interface Tool {
   /** Max result size in chars before persisting to disk */
   maxResultSizeChars?: number
 
-  // ----- MCP integration -----
+  // ===== MCP integration =====
 
   /** Whether this tool wraps an MCP server tool */
   isMcp?: boolean
@@ -151,8 +243,23 @@ export interface Tool {
   mcpInfo?: { serverName: string; toolName: string }
 }
 
-/** Map of tool name to Tool */
-export type Tools = Map<string, Tool>
+/**
+ * Tools collection type — readonly array (full-version compatible).
+ * Internal code can still use Map<string, Tool> via toolsToMap().
+ */
+export type Tools = readonly Tool[]
+
+/** Map of tool name to Tool (internal registry type) */
+export type ToolMap = Map<string, Tool>
+
+/**
+ * Convert Tools (readonly array) to a lookup Map
+ */
+export function toolsToMap(tools: Tools): ToolMap {
+  const map = new Map<string, Tool>()
+  for (const tool of tools) map.set(tool.name, tool)
+  return map
+}
 
 /**
  * Tool registry entry with metadata (local type for compatibility)
@@ -216,6 +323,7 @@ export function buildTool<Input = Record<string, unknown>, Output = ToolResult>(
     maxResultSizeChars: config.maxResultSizeChars,
     isMcp: config.isMcp,
     mcpInfo: config.mcpInfo,
+    searchHint: config.searchHint,
   }
 
   return tool
@@ -380,24 +488,35 @@ export function clearExecutionHistory(): void {
 // ============================================================
 
 /**
- * Find a tool by name (exact match or prefix match)
+ * Find a tool by name (exact match or prefix match).
+ * Accepts both Tools (readonly Tool[]) and Map<string, Tool> for backward compat.
  */
-export function findToolByName(tools: Tools, name: string): Tool | undefined {
-  let tool = tools.get(name)
-  if (tool) return tool
+export function findToolByName(tools: Tools | Map<string, Tool>, name: string): Tool | undefined {
+  // Map path
+  if (tools instanceof Map) {
+    let tool = tools.get(name)
+    if (tool) return tool
+    for (const [, t] of tools) {
+      if (t.aliases?.includes(name)) return t
+    }
+    for (const [toolName, t] of tools) {
+      if (toolName.startsWith(name)) return t
+    }
+    return undefined
+  }
+
+  // Readonly array path
+  const exact = tools.find(t => t.name === name)
+  if (exact) return exact
 
   // Check aliases
-  for (const [toolName, t] of tools.entries()) {
-    if (t.aliases?.includes(name)) {
-      return t
-    }
+  for (const t of tools) {
+    if (t.aliases?.includes(name)) return t
   }
 
   // Prefix match
-  for (const [toolName, t] of tools.entries()) {
-    if (toolName.startsWith(name)) {
-      return t
-    }
+  for (const t of tools) {
+    if (t.name.startsWith(name)) return t
   }
 
   return undefined

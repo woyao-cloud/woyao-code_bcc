@@ -136,7 +136,7 @@ export function getDeferredTools(): Tool[] {
 setToolListProvider(() => getTools())
 setExecuteToolListProvider(() => getTools())
 
-export function getToolsMap(): Tools {
+export function getToolsMap(): Map<string, Tool> {
   const map = new Map<string, Tool>()
   for (const tool of getTools()) map.set(tool.name, tool)
   return map

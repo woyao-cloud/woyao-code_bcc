@@ -57,6 +57,14 @@ export interface QueryOptions {
   ) => Promise<boolean>
   getCwd?: () => string
   onSystemContext?: (messages: BetaMessageParam[]) => Promise<string>
+
+  // ===== Full-version aligned fields =====
+  /** Thinking configuration */
+  thinking?: { type: 'enabled'; budget_tokens: number }
+  /** Tool choice strategy */
+  tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string }
+  /** Custom base URL override */
+  baseURL?: string
 }
 
 export async function* query(

@@ -34,6 +34,16 @@ export interface QueryParams {
   model?: string
   signal?: AbortSignal
   maxTokens?: number
+
+  // ===== Full-version aligned fields =====
+  /** Thinking configuration */
+  thinking?: { type: 'enabled'; budget_tokens: number }
+  /** Tool choice strategy */
+  tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string }
+  /** Custom base URL override */
+  baseURL?: string
+  /** Extra HTTP headers for API requests */
+  extraHeaders?: Record<string, string>
 }
 
 /**
@@ -154,11 +164,11 @@ export async function* streamClaudeAPI(
           : (BETAS as [string, ...string[]]),
         stream: true as const,
         ...(useContextManagement && { context_management: contextManagement }),
-      },
+      } as unknown as never,
       {
         signal: params.signal,
       },
-    )
+    ) as unknown as import('@anthropic-ai/sdk/streaming.mjs').Stream<BetaRawMessageStreamEvent>
 
     for await (const event of stream) {
       yield event

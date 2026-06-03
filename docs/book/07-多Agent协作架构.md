@@ -61,7 +61,7 @@ AgentTool 执行器：
 
 子 Agent 不能使用所有工具——这是安全性的核心机制。工具过滤通过多层规则实现：
 
-**第一层：AL L_AGENT_DISALLOWED_TOOLS**
+**第一层：ALL_AGENT_DISALLOWED_TOOLS**
 
 所有 Agent（无论类型、来源）都不能使用的工具。包含：
 - `Agent`（防无限嵌套，见下节）
@@ -139,7 +139,7 @@ function forkAgent(agentDef, prompt, context) {
 
 AgentTool 最需要防范的是**无限嵌套**——主 Agent spawn 子 Agent，子 Agent spawn 孙子 Agent，直到资源耗尽。
 
-### AL L_AGENT_DISALLOWED_TOOLS 机制
+### ALL_AGENT_DISALLOWED_TOOLS 机制
 
 AgentTool 自身被列入 `ALL_AGENT_DISALLOWED_TOOLS`——这意味着：
 - **默认情况下**，任何子 Agent 都不能使用 AgentTool

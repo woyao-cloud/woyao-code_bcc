@@ -68,6 +68,7 @@ export type ToolConfig<Input, Output> = {
   maxResultSizeChars?: number
   isMcp?: boolean
   mcpInfo?: { serverName: string; toolName: string }
+  searchHint?: string
 }
 
 /**
@@ -115,6 +116,7 @@ export interface TypedTool<Input = Record<string, unknown>, Output = any> {
   maxResultSizeChars?: number
   isMcp?: boolean
   mcpInfo?: { serverName: string; toolName: string }
+  searchHint?: string
 }
 
 // ============================================================================

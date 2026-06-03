@@ -3,6 +3,7 @@ import type {
   ToolUseBlockParam,
   ToolResultBlockParam,
 } from '@anthropic-ai/sdk/resources/messages/messages.js'
+import type { AgentId, SessionId, MessageUuid } from './ids.js'
 
 // ============================================================
 // Message types for the mini CLI
@@ -14,11 +15,20 @@ export type MessageType =
   | 'system'
   | 'attachment'
   | 'progress'
+  | 'thinking'
+  | 'tool_use_summary'
 
+/** API-compatible content block types */
 export type ContentItem =
   | TextBlockParam
   | ToolUseBlockParam
   | ToolResultBlockParam
+
+/** Extended content block types for internal use (not API-compatible) */
+export type ExtendedContentItem =
+  | ContentItem
+  | { type: 'image'; source: { type: string; media_type: string; data: string } }
+  | { type: 'thinking'; thinking: string; signature?: string }
 
 export interface UserMessage {
   type: 'user'
@@ -29,6 +39,7 @@ export interface UserMessage {
   uuid: string
   timestamp: string
   sessionId: string
+  agentId?: AgentId
 }
 
 export interface AssistantMessage {
@@ -44,6 +55,7 @@ export interface AssistantMessage {
   uuid: string
   timestamp: string
   sessionId: string
+  agentId?: AgentId
 }
 
 export interface SystemMessage {
@@ -70,11 +82,44 @@ export interface SystemAPIErrorMessage {
   sessionId: string
 }
 
+export interface ProgressMessage {
+  type: 'progress'
+  data: { type: string; [key: string]: unknown }
+  uuid: string
+  timestamp: string
+}
+
+export interface AttachmentMessage {
+  type: 'attachment'
+  attachment: { type: string; [key: string]: unknown }
+  uuid: string
+  timestamp: string
+}
+
+export interface SystemThinkingMessage {
+  type: 'system_thinking'
+  message: { content: string }
+  uuid: string
+  timestamp: string
+}
+
+export interface ToolUseSummaryMessage {
+  type: 'tool_use_summary'
+  message: { role: 'tool_use_summary'; content: string }
+  uuid: string
+  timestamp: string
+}
+
 export type Message =
   | UserMessage
   | AssistantMessage
   | SystemMessage
   | SystemAPIErrorMessage
+  | SystemCompactBoundaryMessage
+  | ProgressMessage
+  | AttachmentMessage
+  | SystemThinkingMessage
+  | ToolUseSummaryMessage
 
 export type StreamEvent =
   | { type: 'content_block_start'; index: number; content_block: ContentItem }

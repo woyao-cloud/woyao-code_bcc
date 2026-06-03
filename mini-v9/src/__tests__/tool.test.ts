@@ -65,7 +65,7 @@ const mockToolWithAlias: Tool = {
   },
 }
 
-function makeToolsMap(tools: Tool[]): Tools {
+function makeToolsMap(tools: Tool[]): Map<string, Tool> {
   const map = new Map<string, Tool>()
   for (const t of tools) map.set(t.name, t)
   return map

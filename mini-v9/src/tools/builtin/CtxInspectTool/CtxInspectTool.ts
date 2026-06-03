@@ -85,8 +85,8 @@ export const CtxInspectTool: Tool = {
 
     // Analyze all messages
     const messageInfos: MessageInfo[] = messages.map(msg => {
-      const role = String(msg.role ?? 'unknown')
-      const m = msg as Record<string, unknown>
+      const m = msg as unknown as Record<string, unknown>
+      const role = String((m.role as string | undefined) ?? m.type ?? 'unknown')
       // Messages may have content at msg.content or msg.message.content (nested structure)
       const content = (m.message as Record<string, unknown> | undefined)?.content ?? m.content
       const text = extractTextFromContent(content as string | unknown[])
@@ -94,7 +94,7 @@ export const CtxInspectTool: Tool = {
         role,
         estimatedTokens: estimateTokens(text),
         contentLength: text.length,
-        type: msg.type ?? role,
+        type: String(msg.type ?? role),
       }
     })
 

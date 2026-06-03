@@ -6,6 +6,7 @@
 // ============================================================
 
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
+import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { runAgentSync, runAgentAsync } from '../../../agents/agentRunner.js'
 import { runForkedAgent } from '../../../agents/forkSubagent.js'
 import type { AgentResult, AgentTaskState, ForkConfig } from '../../../agents/agentTypes.js'
@@ -193,7 +194,7 @@ export const AgentTool: Tool = {
         const result = await runForkedAgent({
           agentType,
           prompt,
-          parentMessages: ctx.messages,
+          parentMessages: ctx.messages as unknown as BetaMessageParam[],
           forkConfig,
           model,
         })
