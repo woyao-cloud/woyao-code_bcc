@@ -23,6 +23,8 @@ export interface PluginManifest {
   dependencies?: Record<string, string>
   /** Minimum claude-code-mini version */
   minAppVersion?: string
+  /** Hooks contributed by this plugin */
+  hooks?: string[]
 }
 
 /** A command definition in a plugin */
