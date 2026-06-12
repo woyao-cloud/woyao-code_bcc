@@ -477,13 +477,16 @@ function createConversationFromSnapshot(
     return createConversationBuffers()
   }
 
-  const buffers = createConversationBuffers(snapshot.conversation.fullMessages, {
-    compactBoundaries: snapshot.conversation.compactBoundaries,
-    forceCompactNextProjection:
-      snapshot.conversation.forceCompactNextProjection,
-    restoreToolResultBudgetState: true,
-    toolResultBudgetRecords: snapshot.conversation.toolResultBudgetRecords,
-  })
+  const buffers = createConversationBuffers(
+    snapshot.conversation.fullMessages,
+    {
+      compactBoundaries: snapshot.conversation.compactBoundaries,
+      forceCompactNextProjection:
+        snapshot.conversation.forceCompactNextProjection,
+      restoreToolResultBudgetState: true,
+      toolResultBudgetRecords: snapshot.conversation.toolResultBudgetRecords,
+    },
+  )
 
   // Restore boundary tracking from the last compact boundary metadata
   restoreLastSummarizedMessageIdFromBoundaries(buffers.compactBoundaries)

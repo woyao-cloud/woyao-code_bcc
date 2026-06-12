@@ -1,6 +1,12 @@
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
-import { enterPlanMode, getPlanPhaseInstructions } from '../../../services/planMode.js'
-import { isV2Enabled, setPlanModeV2Config } from '../../../services/planModeV2.js'
+import {
+  enterPlanMode,
+  getPlanPhaseInstructions,
+} from '../../../services/planMode.js'
+import {
+  isV2Enabled,
+  setPlanModeV2Config,
+} from '../../../services/planModeV2.js'
 
 export const EnterPlanModeTool: Tool = {
   name: 'EnterPlanMode',
@@ -12,14 +18,19 @@ export const EnterPlanModeTool: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      plan: { type: 'string', description: 'Initial proposed plan or approach summary' },
+      plan: {
+        type: 'string',
+        description: 'Initial proposed plan or approach summary',
+      },
       interview: {
         type: 'boolean',
-        description: 'Enable Interview phase (Phase 0) to ask clarifying questions before exploring. Default: true in V2 mode.',
+        description:
+          'Enable Interview phase (Phase 0) to ask clarifying questions before exploring. Default: true in V2 mode.',
       },
       exploreAgentCount: {
         type: 'number',
-        description: 'Number of parallel Explore agents to launch (default: 3).',
+        description:
+          'Number of parallel Explore agents to launch (default: 3).',
       },
       planAgentCount: {
         type: 'number',
@@ -46,12 +57,14 @@ export const EnterPlanModeTool: Tool = {
     // Configure V2 settings when in V2 mode
     if (enableV2) {
       const interview = input.interview !== false // default true
-      const exploreCount = typeof input.exploreAgentCount === 'number'
-        ? Math.max(1, Math.min(10, input.exploreAgentCount))
-        : 3
-      const planCount = typeof input.planAgentCount === 'number'
-        ? Math.max(1, Math.min(10, input.planAgentCount))
-        : 2
+      const exploreCount =
+        typeof input.exploreAgentCount === 'number'
+          ? Math.max(1, Math.min(10, input.exploreAgentCount))
+          : 3
+      const planCount =
+        typeof input.planAgentCount === 'number'
+          ? Math.max(1, Math.min(10, input.planAgentCount))
+          : 2
 
       setPlanModeV2Config({
         enableInterviewPhase: interview,
@@ -62,10 +75,7 @@ export const EnterPlanModeTool: Tool = {
 
     const { slug } = enterPlanMode(plan)
 
-    const resultParts: string[] = [
-      `Entered plan mode (slug: ${slug}).`,
-      '',
-    ]
+    const resultParts: string[] = [`Entered plan mode (slug: ${slug}).`, '']
 
     if (enableV2) {
       resultParts.push(

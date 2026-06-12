@@ -4,7 +4,13 @@ import { getPermissionMode } from './utils/settings/settings.js'
 import { requestPermission } from './services/permission/permissionManager.js'
 import { retryWithBackoff, classifyAPIError } from './services/retry.js'
 import type { RetryEvent } from './services/retry.js'
-import { logError, logInfo, logWarning, logDebug, logTiming } from './utils/log.js'
+import {
+  logError,
+  logInfo,
+  logWarning,
+  logDebug,
+  logTiming,
+} from './utils/log.js'
 import { createDefaultTurnLimitManager } from './utils/turnLimit.js'
 import {
   projectMessagesForAPI,
@@ -99,14 +105,16 @@ export async function* query(
   while (true) {
     const turnResult = turnLimitManager.increment()
     const turnCount = turnLimitManager.getTurnCount()
-    
-    logDebug(`Turn ${turnCount} started`, { 
+
+    logDebug(`Turn ${turnCount} started`, {
       shouldContinue: turnResult.shouldContinue,
-      maxTurns: options.maxTurns 
+      maxTurns: options.maxTurns,
     })
-    
+
     if (!turnResult.shouldContinue) {
-      logWarning(`Turn limit reached: ${turnCount}`, { maxTurns: options.maxTurns })
+      logWarning(`Turn limit reached: ${turnCount}`, {
+        maxTurns: options.maxTurns,
+      })
       yield {
         type: 'terminal',
         reason: 'max_turns',
@@ -125,7 +133,10 @@ export async function* query(
     // Skips early turns (need enough messages / stable model) and respects circuit-breaker.
     if (turnCount > 2 && conversation.fullMessages.length > 6) {
       try {
-        const foldResult = await applyStagedFolding(conversation.fullMessages, activeModel)
+        const foldResult = await applyStagedFolding(
+          conversation.fullMessages,
+          activeModel,
+        )
         if (foldResult.didFold) {
           conversation.fullMessages.length = 0
           conversation.fullMessages.push(...foldResult.messages)
@@ -137,23 +148,30 @@ export async function* query(
           )
           conversation.toolResultBudgetState = createToolResultBudgetState()
           conversation.forceCompactNextProjection = false
-          logInfo(`Staged fold applied: stage=${foldResult.stage} usage=${foldResult.usagePercent.toFixed(0)}%`)
+          logInfo(
+            `Staged fold applied: stage=${foldResult.stage} usage=${foldResult.usagePercent.toFixed(0)}%`,
+          )
         }
       } catch (err) {
-        logWarning('Staged folding failed, continuing with existing messages', { error: err instanceof Error ? err.message : String(err) })
+        logWarning('Staged folding failed, continuing with existing messages', {
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
     }
 
-    let { messagesForAPI, estimatedTokens, estimatedHeadroom } = projectMessagesForAPI(conversation, {
-      model: activeModel,
-      commitCompactionToConversation: true,
-    })
+    let { messagesForAPI, estimatedTokens, estimatedHeadroom } =
+      projectMessagesForAPI(conversation, {
+        model: activeModel,
+        commitCompactionToConversation: true,
+      })
 
     // Predictive autocompact: if next turn's estimated growth would overflow
     // the context window, compact preemptively to avoid prompt-too-long errors.
     const growthEstimate = estimateMaxTurnGrowth(activeModel)
     if (estimatedHeadroom < growthEstimate) {
-      logInfo(`Predictive autocompact: headroom=${estimatedHeadroom} < growth=${growthEstimate}, forcing compact`)
+      logInfo(
+        `Predictive autocompact: headroom=${estimatedHeadroom} < growth=${growthEstimate}, forcing compact`,
+      )
       const projected = projectMessagesForAPI(conversation, {
         model: activeModel,
         forceCompact: true,
@@ -164,8 +182,8 @@ export async function* query(
       }
     }
 
-    logDebug(`Messages for API: ${messagesForAPI.length}`, { 
-      totalMessages: conversation.fullMessages.length 
+    logDebug(`Messages for API: ${messagesForAPI.length}`, {
+      totalMessages: conversation.fullMessages.length,
     })
 
     const systemCtx = options.onSystemContext
@@ -204,7 +222,11 @@ export async function* query(
         async function* () {
           // Stream watchdog: nested AbortController for idle timeout
           const innerAbort = new AbortController()
-          options.abortSignal?.addEventListener?.('abort', () => innerAbort.abort(), { once: true })
+          options.abortSignal?.addEventListener?.(
+            'abort',
+            () => innerAbort.abort(),
+            { once: true },
+          )
 
           const stream = streamClaudeAPI({
             messages: messagesForAPI,
@@ -229,7 +251,9 @@ export async function* query(
               innerAbort.abort()
             } else if (elapsed >= STALL_WARN_MS && !stallWarned) {
               stallWarned = true
-              process.stderr.write('\n  [Warning] Stream stalled: no data for 30s\n')
+              process.stderr.write(
+                '\n  [Warning] Stream stalled: no data for 30s\n',
+              )
             }
           }, 5000)
 
@@ -268,64 +292,64 @@ export async function* query(
         if (options.abortSignal?.aborted) break
         const evt = item as BetaRawMessageStreamEvent
         switch (evt.type) {
-            case 'content_block_start': {
-              const block = evt.content_block
-              if (block.type === 'tool_use') {
-                const tu = {
-                  id: block.id,
-                  name: block.name,
-                  input: (block.input as Record<string, unknown>) || {},
-                }
-                toolUses.push(tu)
-                contentBlocks.push({
-                  type: 'tool_use',
-                  id: tu.id,
-                  name: tu.name,
-                  input: tu.input,
-                })
-              } else if (block.type === 'text') {
-                contentBlocks.push({ type: 'text', text: '' })
+          case 'content_block_start': {
+            const block = evt.content_block
+            if (block.type === 'tool_use') {
+              const tu = {
+                id: block.id,
+                name: block.name,
+                input: (block.input as Record<string, unknown>) || {},
               }
-              break
+              toolUses.push(tu)
+              contentBlocks.push({
+                type: 'tool_use',
+                id: tu.id,
+                name: tu.name,
+                input: tu.input,
+              })
+            } else if (block.type === 'text') {
+              contentBlocks.push({ type: 'text', text: '' })
             }
-            case 'content_block_delta': {
-              const delta = evt.delta
-              if (delta.type === 'text_delta') {
-                // Yield text in real-time during streaming
-                yield { type: 'text_delta' as const, text: delta.text }
-                const lb = contentBlocks[contentBlocks.length - 1]
-                if (lb && lb.type === 'text') {
-                  lb.text += delta.text
-                  fullText += delta.text
-                  textDeltas.push(delta.text)
-                }
-              } else if (delta.type === 'input_json_delta') {
-                const lt = toolUses[toolUses.length - 1]
-                if (lt) {
-                  lt.input = {
-                    ...lt.input,
-                    ...safeJsonMerge(lt.input, delta.partial_json),
-                  }
+            break
+          }
+          case 'content_block_delta': {
+            const delta = evt.delta
+            if (delta.type === 'text_delta') {
+              // Yield text in real-time during streaming
+              yield { type: 'text_delta' as const, text: delta.text }
+              const lb = contentBlocks[contentBlocks.length - 1]
+              if (lb && lb.type === 'text') {
+                lb.text += delta.text
+                fullText += delta.text
+                textDeltas.push(delta.text)
+              }
+            } else if (delta.type === 'input_json_delta') {
+              const lt = toolUses[toolUses.length - 1]
+              if (lt) {
+                lt.input = {
+                  ...lt.input,
+                  ...safeJsonMerge(lt.input, delta.partial_json),
                 }
               }
-              break
             }
-            case 'message_delta': {
-              totalInputTokens += evt.usage?.input_tokens ?? 0
-              totalOutputTokens += evt.usage.output_tokens
-              totalCacheCreationInputTokens = Math.max(
-                totalCacheCreationInputTokens,
-                evt.usage?.cache_creation_input_tokens ?? 0,
-              )
-              totalCacheReadInputTokens = Math.max(
-                totalCacheReadInputTokens,
-                evt.usage?.cache_read_input_tokens ?? 0,
-              )
-              if (evt.delta?.stop_reason) {
-                stopReason = evt.delta.stop_reason
-              }
-              break
+            break
+          }
+          case 'message_delta': {
+            totalInputTokens += evt.usage?.input_tokens ?? 0
+            totalOutputTokens += evt.usage.output_tokens
+            totalCacheCreationInputTokens = Math.max(
+              totalCacheCreationInputTokens,
+              evt.usage?.cache_creation_input_tokens ?? 0,
+            )
+            totalCacheReadInputTokens = Math.max(
+              totalCacheReadInputTokens,
+              evt.usage?.cache_read_input_tokens ?? 0,
+            )
+            if (evt.delta?.stop_reason) {
+              stopReason = evt.delta.stop_reason
             }
+            break
+          }
         }
       }
       streamComplete = true
@@ -351,7 +375,10 @@ export async function* query(
       // Stage 1: Reactive compact for PTL errors
       if (isPromptTooLongError(msg) && !hasAttemptedReactiveCompact) {
         hasAttemptedReactiveCompact = true
-        yield { type: 'error', message: 'Prompt too long, attempting compaction recovery...' }
+        yield {
+          type: 'error',
+          message: 'Prompt too long, attempting compaction recovery...',
+        }
         const result = await reactiveCompact(conversation.fullMessages)
         if (result.didCompact) {
           conversation.fullMessages.length = 0
@@ -375,12 +402,22 @@ export async function* query(
       }
 
       // Model fallback for server/rate limit/connection errors
-      if (!hasAttemptedFallback && options.fallbackModel && activeModel !== options.fallbackModel) {
+      if (
+        !hasAttemptedFallback &&
+        options.fallbackModel &&
+        activeModel !== options.fallbackModel
+      ) {
         const category = classifyAPIError(streamError)
-        if (category === 'server_error' || category === 'rate_limit' || category === 'connection_error') {
+        if (
+          category === 'server_error' ||
+          category === 'rate_limit' ||
+          category === 'connection_error'
+        ) {
           hasAttemptedFallback = true
           activeModel = options.fallbackModel
-          logWarning(`Falling back to model: ${activeModel} after error: ${category}`)
+          logWarning(
+            `Falling back to model: ${activeModel} after error: ${category}`,
+          )
           yield {
             type: 'error',
             message: `Switching to fallback model (${activeModel}) due to ${category}...`,
@@ -445,7 +482,10 @@ export async function* query(
           : { type: 'text' as const, text: b.text },
       )
       if (partialContent.length > 0) {
-        const partialMsg = { role: 'assistant' as const, content: partialContent }
+        const partialMsg = {
+          role: 'assistant' as const,
+          content: partialContent,
+        }
         messages.push(partialMsg)
         pushMessageWithUuid(conversation, partialMsg)
       }
@@ -468,7 +508,10 @@ export async function* query(
       if (lastMaxTokensOutputTokens > 0) {
         const delta = totalOutputTokens - lastMaxTokensOutputTokens
         if (delta < 500) {
-          logWarning('max_tokens diminishing returns detected, stopping recovery', { delta })
+          logWarning(
+            'max_tokens diminishing returns detected, stopping recovery',
+            { delta },
+          )
           yield {
             type: 'turn_end',
             turnCount: turnLimitManager.getTurnCount(),
@@ -542,7 +585,9 @@ export async function* query(
 
     // Warn if model returned nothing useful
     if (textDeltas.length === 0 && toolUses.length === 0) {
-      process.stderr.write('\n  [Warning] Model returned no text and no tool calls. Check API configuration or model capabilities.\n')
+      process.stderr.write(
+        '\n  [Warning] Model returned no text and no tool calls. Check API configuration or model capabilities.\n',
+      )
     }
 
     const assistantContent: ContentItem[] = contentBlocks.map(b =>
@@ -551,7 +596,10 @@ export async function* query(
         : { type: 'text' as const, text: b.text },
     )
     if (assistantContent.length > 0) {
-      const assistantMsg = { role: 'assistant' as const, content: assistantContent }
+      const assistantMsg = {
+        role: 'assistant' as const,
+        content: assistantContent,
+      }
       messages.push(assistantMsg)
       pushMessageWithUuid(conversation, assistantMsg)
     }
@@ -561,11 +609,16 @@ export async function* query(
     // (e.g., from AI proxies that transform PTL into 200 responses).
     if (toolUses.length === 0 && !hasAttemptedReactiveCompact) {
       const contentText = textDeltas.join('')
-      const isPTLContent = contentText.includes('Prompt is too long') || contentText.includes('prompt is too long')
+      const isPTLContent =
+        contentText.includes('Prompt is too long') ||
+        contentText.includes('prompt is too long')
       if (isPTLContent) {
         hasAttemptedReactiveCompact = true
         logInfo('Post-stream PTL detected, attempting reactive compact')
-        yield { type: 'error', message: 'Recovery compact triggered for PTL response...' }
+        yield {
+          type: 'error',
+          message: 'Recovery compact triggered for PTL response...',
+        }
         const result = await reactiveCompact(conversation.fullMessages)
         if (result.didCompact) {
           conversation.fullMessages.length = 0
@@ -606,51 +659,50 @@ export async function* query(
       input: tu.input,
     }))
 
-    logInfo(`Executing ${toolUseRequests.length} tool(s): ${toolUseRequests.map(t => t.name).join(', ')}`)
-    
+    logInfo(
+      `Executing ${toolUseRequests.length} tool(s): ${toolUseRequests.map(t => t.name).join(', ')}`,
+    )
+
     const { toolResults } = await logTiming(
       `tool_execution_${toolUseRequests.map(t => t.name).join('_')}`,
-      () => orchestrateToolExecution(
-        toolUseRequests,
-        toolsMap,
-        cwd,
-        {
+      () =>
+        orchestrateToolExecution(toolUseRequests, toolsMap, cwd, {
           canUseTool: options.canUseTool,
           abortSignal: options.abortSignal,
           isInteractive: options.isInteractive,
-        },
-      ),
-      30000 // 30 second threshold for slow tool execution
+        }),
+      30000, // 30 second threshold for slow tool execution
     )
 
     const failedTools = toolResults.filter(tr => {
       const raw = tr as unknown as Record<string, unknown>
       return raw.is_error === true
     })
-    
+
     if (failedTools.length > 0) {
       logWarning(`${failedTools.length} tool(s) failed`, {
         toolNames: failedTools.map(tr => {
           const raw = tr as unknown as Record<string, unknown>
           return raw.tool_use_id
-        })
+        }),
       })
     }
 
     for (const tr of toolResults) {
       const raw = tr as unknown as Record<string, unknown>
       const content = typeof raw.content === 'string' ? raw.content : ''
-      const toolName = toolUses.find(tu => tu.id === raw.tool_use_id)?.name ?? 'unknown'
-      
+      const toolName =
+        toolUses.find(tu => tu.id === raw.tool_use_id)?.name ?? 'unknown'
+
       if (raw.is_error) {
-        logWarning(`Tool failed: ${toolName}`, { 
+        logWarning(`Tool failed: ${toolName}`, {
           error: content,
-          toolUseId: raw.tool_use_id 
+          toolUseId: raw.tool_use_id,
         })
       } else {
         logDebug(`Tool succeeded: ${toolName}`, { toolUseId: raw.tool_use_id })
       }
-      
+
       yield {
         type: 'tool_result' as const,
         id: raw.tool_use_id as string,
@@ -687,18 +739,16 @@ export async function* query(
           content: syntheticContent,
           isError: true,
         }
-        logWarning(`Missing tool result injected: ${tu.name}`, { toolUseId: tu.id })
+        logWarning(`Missing tool result injected: ${tu.name}`, {
+          toolUseId: tu.id,
+        })
       }
     }
 
     // Persist large tool results to disk to reduce memory and session size
     const persistedResults = toolResults.map(tr => {
       const raw = tr as unknown as Record<string, unknown>
-      if (
-        raw.content &&
-        typeof raw.content === 'string' &&
-        !raw.is_error
-      ) {
+      if (raw.content && typeof raw.content === 'string' && !raw.is_error) {
         const persisted = persistLargeToolResult(raw.content)
         if (persisted !== raw.content) {
           return { ...tr, content: persisted } as typeof tr

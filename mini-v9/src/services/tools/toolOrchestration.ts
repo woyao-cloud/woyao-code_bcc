@@ -126,9 +126,7 @@ function partitionTools(tools: OrchestratedToolUse[]): {
  * Combine two AbortSignals into a single signal.
  * If either signal aborts, the combined signal aborts.
  */
-function combineSignals(
-  ...signals: (AbortSignal | undefined)[]
-): AbortSignal {
+function combineSignals(...signals: (AbortSignal | undefined)[]): AbortSignal {
   const controller = new AbortController()
   for (const signal of signals) {
     if (!signal) continue
@@ -174,7 +172,12 @@ async function runConcurrentWithSlots(
       )
       const ctxWithSlotAbort = { ...t.ctx, abortSignal: mergedSignal }
 
-      const r = await executeSingleTool(t.tool, t.request, ctxWithSlotAbort, hooks)
+      const r = await executeSingleTool(
+        t.tool,
+        t.request,
+        ctxWithSlotAbort,
+        hooks,
+      )
       toolResults.push(r.toolResult)
       results.push(r)
 

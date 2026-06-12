@@ -147,7 +147,9 @@ export function validatePluginManifest(
   if (!manifest.name || !manifest.name.trim()) {
     errors.push('Plugin name is required')
   } else if (!/^[a-z0-9_-]+$/i.test(manifest.name)) {
-    errors.push('Plugin name must only contain letters, numbers, hyphens, and underscores')
+    errors.push(
+      'Plugin name must only contain letters, numbers, hyphens, and underscores',
+    )
   }
 
   if (!manifest.version) {
@@ -181,9 +183,7 @@ export function validatePluginManifest(
 // Source Display
 // ============================================================
 
-export function getMarketplaceSourceDisplay(
-  source: MarketplaceSource,
-): string {
+export function getMarketplaceSourceDisplay(source: MarketplaceSource): string {
   switch (source.source) {
     case 'github':
       return source.repo

@@ -271,9 +271,13 @@ export function projectMessagesForAPI(
     return changed ? { ...msg, content: nextContent } : msg
   })
 
-  const microcompacted = getMicrocompactWithCache(cachedMCState, messagesForAPI, {
-    positionThreshold: 10,
-  })
+  const microcompacted = getMicrocompactWithCache(
+    cachedMCState,
+    messagesForAPI,
+    {
+      positionThreshold: 10,
+    },
+  )
   const didMicrocompact = microcompacted !== messagesForAPI
   messagesForAPI = microcompacted
 
@@ -297,7 +301,9 @@ export function projectMessagesForAPI(
       // Compute fingerprint of the last compacted message for boundary tracking
       // (must use original messagesForAPI before reassignment)
       const lastCompactMsg = messagesForAPI[smResult.keptStartIndex - 1]
-      const fingerprint = lastCompactMsg ? getMessageFingerprint(lastCompactMsg) : undefined
+      const fingerprint = lastCompactMsg
+        ? getMessageFingerprint(lastCompactMsg)
+        : undefined
 
       messagesForAPI = smResult.messages
 
@@ -321,7 +327,11 @@ export function projectMessagesForAPI(
       didCompact = compacted !== messagesForAPI
       messagesForAPI = compacted
 
-      if (didCompact && conversation && options.commitCompactionToConversation) {
+      if (
+        didCompact &&
+        conversation &&
+        options.commitCompactionToConversation
+      ) {
         commitCompactedProjectionToConversation(
           conversation,
           fullMessages,

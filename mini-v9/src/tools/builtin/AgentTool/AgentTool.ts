@@ -9,7 +9,11 @@ import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 import { runAgentSync, runAgentAsync } from '../../../agents/agentRunner.js'
 import { runForkedAgent } from '../../../agents/forkSubagent.js'
-import type { AgentResult, AgentTaskState, ForkConfig } from '../../../agents/agentTypes.js'
+import type {
+  AgentResult,
+  AgentTaskState,
+  ForkConfig,
+} from '../../../agents/agentTypes.js'
 import { getAgent } from '../../../agents/agentRegistry.js'
 
 /** AgentTool input schema */
@@ -45,7 +49,7 @@ const AGENT_TOOL_SCHEMA = {
     fork: {
       type: 'boolean',
       description:
-        'Set to true to fork this agent as a subprocess that shares the parent\'s system prompt prefix for cache efficiency. ' +
+        "Set to true to fork this agent as a subprocess that shares the parent's system prompt prefix for cache efficiency. " +
         'Useful for parallel research agents that explore different aspects of the same codebase.',
     },
     isolation: {

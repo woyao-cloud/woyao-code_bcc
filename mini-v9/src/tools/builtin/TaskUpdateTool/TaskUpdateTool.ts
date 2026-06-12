@@ -32,12 +32,14 @@ export const TaskUpdateTool: Tool = {
       addBlocks: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Task IDs that this task now blocks (adds to existing blocks list)',
+        description:
+          'Task IDs that this task now blocks (adds to existing blocks list)',
       },
       addBlockedBy: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Task IDs that now block this task (adds to existing blockedBy list)',
+        description:
+          'Task IDs that now block this task (adds to existing blockedBy list)',
       },
     },
     required: ['id'],
@@ -82,7 +84,11 @@ export const TaskUpdateTool: Tool = {
           error: 'Invalid status',
         }
       }
-      updates.status = status as 'pending' | 'in_progress' | 'completed' | 'failed'
+      updates.status = status as
+        | 'pending'
+        | 'in_progress'
+        | 'completed'
+        | 'failed'
     }
 
     if (input.result !== undefined) {
@@ -100,9 +106,14 @@ export const TaskUpdateTool: Tool = {
         const newBlocks = (input.addBlocks as string[]).map(String)
         updates.blocks = [...new Set([...existingTask.blocks, ...newBlocks])]
       }
-      if (input.addBlockedBy !== undefined && Array.isArray(input.addBlockedBy)) {
+      if (
+        input.addBlockedBy !== undefined &&
+        Array.isArray(input.addBlockedBy)
+      ) {
         const newBlockedBy = (input.addBlockedBy as string[]).map(String)
-        updates.blockedBy = [...new Set([...existingTask.blockedBy, ...newBlockedBy])]
+        updates.blockedBy = [
+          ...new Set([...existingTask.blockedBy, ...newBlockedBy]),
+        ]
       }
     }
 

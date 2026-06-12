@@ -48,7 +48,8 @@ export class LineBuffer {
 
   insert(ch: string): void {
     const line = this.lines[this.cursorLine]
-    this.lines[this.cursorLine] = line.slice(0, this.cursorCol) + ch + line.slice(this.cursorCol)
+    this.lines[this.cursorLine] =
+      line.slice(0, this.cursorCol) + ch + line.slice(this.cursorCol)
     this.cursorCol++
   }
 
@@ -71,7 +72,8 @@ export class LineBuffer {
       this.cursorLine--
     } else {
       const line = this.lines[this.cursorLine]
-      this.lines[this.cursorLine] = line.slice(0, this.cursorCol - 1) + line.slice(this.cursorCol)
+      this.lines[this.cursorLine] =
+        line.slice(0, this.cursorCol - 1) + line.slice(this.cursorCol)
       this.cursorCol--
     }
   }
@@ -264,7 +266,10 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
     // Write prompt and hide cursor
     process.stderr.write(cursorHide() + buf.prompt)
 
-    const onKeyPress = (_: string, key: { name: string; ctrl: boolean; meta: boolean; shift: boolean }) => {
+    const onKeyPress = (
+      _: string,
+      key: { name: string; ctrl: boolean; meta: boolean; shift: boolean },
+    ) => {
       if (!active) return
       const keyName = key?.name ?? ''
 
@@ -301,7 +306,9 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
           cleanup()
           // Clear rendered input, show the submitted text in scrollback
           const prompt = buf.prompt + result.replace(/\n/g, '\n  ')
-          process.stderr.write(buf.clearRendered() + '\r' + prompt + '\n' + cursorShow())
+          process.stderr.write(
+            buf.clearRendered() + '\r' + prompt + '\n' + cursorShow(),
+          )
           resolve(result)
         } else {
           // Empty input, just re-render
@@ -412,7 +419,10 @@ export function readInput(opts: ReadInputOptions = {}): Promise<string | null> {
       if (!active || !data || data.length === 0) return
       let hasNonAscii = false
       for (let i = 0; i < data.length; i++) {
-        if (data[i]! >= 0x80) { hasNonAscii = true; break }
+        if (data[i]! >= 0x80) {
+          hasNonAscii = true
+          break
+        }
       }
       if (!hasNonAscii) return
       const str = data.toString('utf-8')

@@ -40,11 +40,15 @@ export interface ForkSubagentOptions {
  * When forkConfig.isolation === 'worktree', creates an isolated
  * worktree for safe experimentation.
  */
-export async function runForkedAgent(options: ForkSubagentOptions): Promise<AgentResult> {
-  const { agentType, prompt, parentMessages, forkConfig, model, onProgress } = options
+export async function runForkedAgent(
+  options: ForkSubagentOptions,
+): Promise<AgentResult> {
+  const { agentType, prompt, parentMessages, forkConfig, model, onProgress } =
+    options
 
   // Build parent tool result replacements for stable replay
-  const parentToolResultReplacements = buildParentToolResultReplacements(parentMessages)
+  const parentToolResultReplacements =
+    buildParentToolResultReplacements(parentMessages)
 
   // If worktree isolation is configured, create the worktree
   let worktreePath: string | undefined
@@ -140,11 +144,18 @@ function buildParentToolResultReplacements(
 
     for (const block of content) {
       if (block.type === 'tool_result' && block.tool_use_id) {
-        const text = typeof block.content === 'string'
-          ? block.content
-          : Array.isArray(block.content)
-            ? block.content.map(c => (typeof c === 'string' ? c : (c as Record<string, unknown>).text ?? '')).join('\n')
-            : ''
+        const text =
+          typeof block.content === 'string'
+            ? block.content
+            : Array.isArray(block.content)
+              ? block.content
+                  .map(c =>
+                    typeof c === 'string'
+                      ? c
+                      : ((c as Record<string, unknown>).text ?? ''),
+                  )
+                  .join('\n')
+              : ''
         replacements.set(block.tool_use_id, text)
       }
     }
@@ -156,7 +167,10 @@ function buildParentToolResultReplacements(
 /**
  * Check if a worktree isolation is configured and return its config.
  */
-export function getWorktreeConfig(fork: ForkConfig, worktree?: WorktreeConfig): WorktreeConfig | undefined {
+export function getWorktreeConfig(
+  fork: ForkConfig,
+  worktree?: WorktreeConfig,
+): WorktreeConfig | undefined {
   if (fork.isolation !== 'worktree') return undefined
   return worktree
 }

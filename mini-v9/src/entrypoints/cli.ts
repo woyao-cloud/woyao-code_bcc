@@ -69,7 +69,13 @@ import { getTeamMemoryForPrompt } from '../services/memory/teamMemorySync.js'
 import { initAgentRegistry, getAllAgents } from '../agents/agentRegistry.js'
 
 // UI module imports
-import { parseCLIArgs, resolveResumeSnapshot, restoreSnapshotCwd, createConversationFromSnapshot, persistConversationSnapshot } from '../ui/session.js'
+import {
+  parseCLIArgs,
+  resolveResumeSnapshot,
+  restoreSnapshotCwd,
+  createConversationFromSnapshot,
+  persistConversationSnapshot,
+} from '../ui/session.js'
 import { readInput } from '../ui/input.js'
 import { createSpinner } from '../ui/spinner.js'
 import { createUIStateManager } from '../ui/state.js'
@@ -301,7 +307,9 @@ async function runConversationTurn(
   const eventCtx = createEventContext(spinner, stateManager)
   const statusBar = createStatusBar(stateManager)
 
-  logInfo(`User input received: "${preprompt?.substring(0, 50)}${preprompt && preprompt.length > 50 ? '...' : ''}"`)
+  logInfo(
+    `User input received: "${preprompt?.substring(0, 50)}${preprompt && preprompt.length > 50 ? '...' : ''}"`,
+  )
 
   const gen = preprompt
     ? engine.submitMessage(preprompt, {

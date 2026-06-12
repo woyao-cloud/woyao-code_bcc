@@ -53,7 +53,7 @@ export async function getGitRoot(cwd: string): Promise<string | null> {
     ['rev-parse', '--show-toplevel'],
     { cwd },
   )
-  const root = result.exitCode === 0 ? (result.stdout.trim() || null) : null
+  const root = result.exitCode === 0 ? result.stdout.trim() || null : null
   setCachedGitRoot(cwd, root)
   return root
 }
@@ -323,9 +323,7 @@ export async function getStagedFiles(cwd: string): Promise<string[]> {
  * Get all changed files (staged + unstaged modifications).
  * Returns { staged, unstaged, untracked, all } groups.
  */
-export async function getChangedFiles(
-  cwd: string,
-): Promise<{
+export async function getChangedFiles(cwd: string): Promise<{
   staged: string[]
   unstaged: string[]
   untracked: string[]
@@ -482,19 +480,29 @@ export async function getGitState(cwd: string): Promise<GitState | null> {
   const isGit = await getIsGit(cwd)
   if (!isGit) return null
 
-  const [branch, defaultBranch, commit, shortCommit, isClean, status, ahead, behind, remoteUrl, root] =
-    await Promise.all([
-      getBranch(cwd),
-      getDefaultBranch(cwd),
-      getCommitHash(cwd),
-      getCommitHash(cwd, true),
-      isWorkingTreeClean(cwd),
-      getStatus(cwd),
-      getAheadCount(cwd),
-      getBehindCount(cwd),
-      getRemoteUrl(cwd),
-      getGitRoot(cwd),
-    ])
+  const [
+    branch,
+    defaultBranch,
+    commit,
+    shortCommit,
+    isClean,
+    status,
+    ahead,
+    behind,
+    remoteUrl,
+    root,
+  ] = await Promise.all([
+    getBranch(cwd),
+    getDefaultBranch(cwd),
+    getCommitHash(cwd),
+    getCommitHash(cwd, true),
+    isWorkingTreeClean(cwd),
+    getStatus(cwd),
+    getAheadCount(cwd),
+    getBehindCount(cwd),
+    getRemoteUrl(cwd),
+    getGitRoot(cwd),
+  ])
 
   const changedFiles = (await getChangedFiles(cwd)).all
   const untrackedFiles = await getUntrackedFiles(cwd)

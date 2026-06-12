@@ -7,7 +7,11 @@ import type {
   ToolPermissionContext,
   PermissionResult,
 } from './types/permissions.js'
-import type { AssistantMessage, Message, SystemMessage } from './types/message.js'
+import type {
+  AssistantMessage,
+  Message,
+  SystemMessage,
+} from './types/message.js'
 import type {
   TypedTool,
   ToolConfig,
@@ -121,7 +125,11 @@ export interface ToolResultV2<T = unknown> {
   /** Optional metadata */
   metadata?: Record<string, unknown>
   /** New messages to inject into conversation */
-  newMessages?: (import('./types/message.js').UserMessage | AssistantMessage | SystemMessage)[]
+  newMessages?: (
+    | import('./types/message.js').UserMessage
+    | AssistantMessage
+    | SystemMessage
+  )[]
   /** Context modifier function */
   contextModifier?: (context: ToolUseContext) => ToolUseContext
   /** MCP protocol metadata */
@@ -146,7 +154,9 @@ export function toolResultToV2(result: ToolResult): ToolResultV2<string> {
 /**
  * Convert ToolResultV2 to ToolResult for backward compat
  */
-export function toolResultV2ToContent(result: ToolResultV2<string>): ToolResult {
+export function toolResultV2ToContent(
+  result: ToolResultV2<string>,
+): ToolResult {
   return {
     content: result.data,
     success: result.success,
@@ -491,7 +501,10 @@ export function clearExecutionHistory(): void {
  * Find a tool by name (exact match or prefix match).
  * Accepts both Tools (readonly Tool[]) and Map<string, Tool> for backward compat.
  */
-export function findToolByName(tools: Tools | Map<string, Tool>, name: string): Tool | undefined {
+export function findToolByName(
+  tools: Tools | Map<string, Tool>,
+  name: string,
+): Tool | undefined {
   // Map path
   if (tools instanceof Map) {
     let tool = tools.get(name)

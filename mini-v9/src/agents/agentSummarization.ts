@@ -60,7 +60,10 @@ export function buildAgentProgressSummary(
 
   // Estimate remaining context: assume ~200K context window
   const estimatedWindow = 200_000
-  const remainingContextPct = Math.max(0, Math.round((1 - totalTokens / estimatedWindow) * 100))
+  const remainingContextPct = Math.max(
+    0,
+    Math.round((1 - totalTokens / estimatedWindow) * 100),
+  )
 
   return {
     agentId,

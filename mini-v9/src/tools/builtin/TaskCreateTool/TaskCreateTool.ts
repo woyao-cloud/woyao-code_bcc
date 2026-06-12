@@ -28,7 +28,8 @@ export const TaskCreateTool: Tool = {
       blocks: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Task IDs that depend on this task (this task blocks them)',
+        description:
+          'Task IDs that depend on this task (this task blocks them)',
       },
     },
     required: ['title', 'description'],

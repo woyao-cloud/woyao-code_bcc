@@ -6,7 +6,10 @@ import {
   snipCompactIfNeeded,
   shouldNudgeForSnips,
 } from '../services/compact/snipCompact.js'
-import { toSnipEntries, applySnipToBuffers } from '../services/messages/apiProjection.js'
+import {
+  toSnipEntries,
+  applySnipToBuffers,
+} from '../services/messages/apiProjection.js'
 
 export function registerForceSnipCommand(): void {
   registerCommand({

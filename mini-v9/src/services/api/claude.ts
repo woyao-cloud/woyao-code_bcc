@@ -148,7 +148,7 @@ export async function* streamClaudeAPI(
     const contextManagement = getAPIContextManagement()
     const useContextManagement = !baseURL && contextManagement
 
-    const stream = await client.beta.messages.create(
+    const stream = (await client.beta.messages.create(
       {
         model,
         max_tokens: params.maxTokens ?? MAX_TOKENS,
@@ -168,7 +168,7 @@ export async function* streamClaudeAPI(
       {
         signal: params.signal,
       },
-    ) as unknown as import('@anthropic-ai/sdk/streaming.mjs').Stream<BetaRawMessageStreamEvent>
+    )) as unknown as import('@anthropic-ai/sdk/streaming.mjs').Stream<BetaRawMessageStreamEvent>
 
     for await (const event of stream) {
       yield event

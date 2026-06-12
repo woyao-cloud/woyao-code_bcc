@@ -22,7 +22,11 @@ import { getAgentsForPromptWithOptions } from './agents/agentRegistry.js'
 import { getTeamsForPromptWithOptions } from './agents/teamManager.js'
 import { getTeamMemoryForPromptWithOptions } from './services/memory/teamMemorySync.js'
 import { getSystemContextCacheRevision } from './services/context/contextCacheState.js'
-import { isInPlanMode, getPlanSummary, getPlanPhaseInstructions } from './services/planMode.js'
+import {
+  isInPlanMode,
+  getPlanSummary,
+  getPlanPhaseInstructions,
+} from './services/planMode.js'
 
 // ============================================================================
 // Context Types
@@ -1025,8 +1029,10 @@ export async function getGitContext(): Promise<string> {
   if (gitStatus.hasStagedChanges) parts.push('- Has staged changes')
   if (gitStatus.hasUnstagedChanges) parts.push('- Has unstaged changes')
   if (gitStatus.hasUntrackedFiles) parts.push('- Has untracked files')
-  if (gitStatus.ahead > 0) parts.push(`- ${gitStatus.ahead} commits ahead of origin`)
-  if (gitStatus.behind > 0) parts.push(`- ${gitStatus.behind} commits behind origin`)
+  if (gitStatus.ahead > 0)
+    parts.push(`- ${gitStatus.ahead} commits ahead of origin`)
+  if (gitStatus.behind > 0)
+    parts.push(`- ${gitStatus.behind} commits behind origin`)
   if (gitStatus.hasUnpushedCommits) parts.push('- Has unpushed commits')
 
   // Add recent commits (max 5)

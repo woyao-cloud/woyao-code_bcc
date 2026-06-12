@@ -24,7 +24,8 @@ export const GitLogTool: Tool = {
       },
       format: {
         type: 'string',
-        description: 'Output format: "oneline", "short", "medium", "full" (default: "oneline")',
+        description:
+          'Output format: "oneline", "short", "medium", "full" (default: "oneline")',
         enum: ['oneline', 'short', 'medium', 'full'],
       },
       branch: {
@@ -46,7 +47,11 @@ export const GitLogTool: Tool = {
 
     const isGit = await getIsGit(cwd)
     if (!isGit) {
-      return { content: 'Not in a git repository', success: false, error: 'Not a git repo' }
+      return {
+        content: 'Not in a git repository',
+        success: false,
+        error: 'Not a git repo',
+      }
     }
 
     const maxCount = Number(input.maxCount) || 10
@@ -92,7 +97,11 @@ export const GitLogTool: Tool = {
       const output = result.stdout.trim() || '(no commits)'
       return { content: output, success: true }
     } catch (e) {
-      return { content: `Git log error: ${e}`, success: false, error: String(e) }
+      return {
+        content: `Git log error: ${e}`,
+        success: false,
+        error: String(e),
+      }
     }
   },
   userFacingName: () => 'GitLog',

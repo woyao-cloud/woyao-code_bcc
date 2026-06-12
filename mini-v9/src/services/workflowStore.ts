@@ -3,7 +3,14 @@
  * Workflows are saved as JSON files to ~/.claude-code-mini/workflows/{id}.json.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+} from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { logDebug, logError } from '../utils/log.js'
@@ -86,7 +93,9 @@ let workflows = new Map<string, Workflow>()
 
 export function initializeWorkflowStore(): void {
   workflows = loadAllFromDisk()
-  logDebug(`Workflow store initialized: ${workflows.size} workflows loaded from disk`)
+  logDebug(
+    `Workflow store initialized: ${workflows.size} workflows loaded from disk`,
+  )
 }
 
 export function resetWorkflowStore(): void {
@@ -148,17 +157,28 @@ export function getWorkflow(id: string): Workflow | undefined {
   return workflows.get(id)
 }
 
-export function updateWorkflowStatus(id: string, status: WorkflowStatus): Workflow | undefined {
+export function updateWorkflowStatus(
+  id: string,
+  status: WorkflowStatus,
+): Workflow | undefined {
   const wf = workflows.get(id)
   if (!wf) return undefined
 
-  const updated: Workflow = { ...wf, status, updatedAt: new Date().toISOString() }
+  const updated: Workflow = {
+    ...wf,
+    status,
+    updatedAt: new Date().toISOString(),
+  }
   workflows.set(id, updated)
   writeToDisk(updated)
   return updated
 }
 
-export function updateStep(id: string, stepId: string, input: UpdateStepInput): WorkflowStep | undefined {
+export function updateStep(
+  id: string,
+  stepId: string,
+  input: UpdateStepInput,
+): WorkflowStep | undefined {
   const wf = workflows.get(id)
   if (!wf) return undefined
 
@@ -174,8 +194,14 @@ export function updateStep(id: string, stepId: string, input: UpdateStepInput): 
     status: input.status ?? existing.status,
     result: input.result ?? existing.result,
     assignee: input.assignee ?? existing.assignee,
-    startedAt: input.status === 'in_progress' && !existing.startedAt ? now : existing.startedAt,
-    completedAt: input.status === 'completed' || input.status === 'failed' ? now : existing.completedAt,
+    startedAt:
+      input.status === 'in_progress' && !existing.startedAt
+        ? now
+        : existing.startedAt,
+    completedAt:
+      input.status === 'completed' || input.status === 'failed'
+        ? now
+        : existing.completedAt,
   }
 
   const newSteps = [...wf.steps]
@@ -184,7 +210,14 @@ export function updateStep(id: string, stepId: string, input: UpdateStepInput): 
   const updated: Workflow = { ...wf, steps: newSteps, updatedAt: now }
 
   // Auto-complete workflow if all steps completed/failed/skipped
-  if (updated.steps.every(s => s.status === 'completed' || s.status === 'failed' || s.status === 'skipped')) {
+  if (
+    updated.steps.every(
+      s =>
+        s.status === 'completed' ||
+        s.status === 'failed' ||
+        s.status === 'skipped',
+    )
+  ) {
     updated.status = 'completed'
   }
 
@@ -193,7 +226,9 @@ export function updateStep(id: string, stepId: string, input: UpdateStepInput): 
   return updatedStep
 }
 
-export function listWorkflows(filter?: { status?: WorkflowStatus }): Workflow[] {
+export function listWorkflows(filter?: {
+  status?: WorkflowStatus
+}): Workflow[] {
   const all = Array.from(workflows.values()).sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
   )
@@ -203,7 +238,9 @@ export function listWorkflows(filter?: { status?: WorkflowStatus }): Workflow[] 
   return all
 }
 
-export function getWorkflowSummaries(filter?: { status?: WorkflowStatus }): WorkflowSummary[] {
+export function getWorkflowSummaries(filter?: {
+  status?: WorkflowStatus
+}): WorkflowSummary[] {
   const all = listWorkflows(filter)
   return all.map(wf => ({
     id: wf.id,
@@ -239,16 +276,25 @@ export function getWorkflowProgress(id: string): string | undefined {
 
   for (const phase of wf.phases) {
     const phaseSteps = wf.steps.filter(s => s.phase === phase.order)
-    const phaseCompleted = phaseSteps.filter(s => s.status === 'completed').length
+    const phaseCompleted = phaseSteps.filter(
+      s => s.status === 'completed',
+    ).length
     const phaseTotal = phaseSteps.length
-    lines.push(`Phase ${phase.order}: ${phase.name} (${phaseCompleted}/${phaseTotal})`)
+    lines.push(
+      `Phase ${phase.order}: ${phase.name} (${phaseCompleted}/${phaseTotal})`,
+    )
 
     for (const step of phaseSteps) {
-      const statusIcon = step.status === 'completed' ? '[✓]'
-        : step.status === 'in_progress' ? '[→]'
-        : step.status === 'failed' ? '[✗]'
-        : step.status === 'skipped' ? '[-]'
-        : '[ ]'
+      const statusIcon =
+        step.status === 'completed'
+          ? '[✓]'
+          : step.status === 'in_progress'
+            ? '[→]'
+            : step.status === 'failed'
+              ? '[✗]'
+              : step.status === 'skipped'
+                ? '[-]'
+                : '[ ]'
       lines.push(`  ${statusIcon} ${step.name}`)
       if (step.assignee) lines.push(`    Assignee: ${step.assignee}`)
       if (step.result) lines.push(`    Result: ${step.result.slice(0, 200)}`)

@@ -56,7 +56,9 @@ function processChunk(text: string): string {
       const afterFence = remaining.slice(fenceIdx + 3)
       const langMatch = afterFence.match(/^(\w+)/)
       codeLanguage = langMatch ? langMatch[1] : ''
-      const afterLang = langMatch ? afterFence.slice(langMatch[0].length) : afterFence
+      const afterLang = langMatch
+        ? afterFence.slice(langMatch[0].length)
+        : afterFence
 
       inCodeBlock = true
       codeBuffer = ''
@@ -67,7 +69,11 @@ function processChunk(text: string): string {
   return output
 }
 
-function formatCodeBlock(code: string, language: string, truncated: boolean): string {
+function formatCodeBlock(
+  code: string,
+  language: string,
+  truncated: boolean,
+): string {
   if (!code) return ''
 
   let highlighted: string
@@ -87,7 +93,13 @@ function formatCodeBlock(code: string, language: string, truncated: boolean): st
     .replace(/\n+$/, '')
 
   if (truncated) {
-    return '\n' + formatted + '\n' + dim('  ─── (code block truncated, streaming) ───') + '\n\n'
+    return (
+      '\n' +
+      formatted +
+      '\n' +
+      dim('  ─── (code block truncated, streaming) ───') +
+      '\n\n'
+    )
   }
 
   return '\n\n' + formatted + '\n\n'

@@ -637,9 +637,10 @@ interface SessionMemoryMetadata {
   lastSummarizedMessageId?: string
 }
 
-function parseSessionMemoryMarkdown(
-  raw: string,
-): { notes: SessionMemoryNote[]; metadata: SessionMemoryMetadata } {
+function parseSessionMemoryMarkdown(raw: string): {
+  notes: SessionMemoryNote[]
+  metadata: SessionMemoryMetadata
+} {
   const notes: SessionMemoryNote[] = []
   const metadata: SessionMemoryMetadata = {}
   const lines = raw.split('\n')

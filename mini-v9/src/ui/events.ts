@@ -13,7 +13,10 @@ export interface EventContext {
   lastToolName: string
 }
 
-export function createEventContext(spinner: Spinner, stateManager: UIStateManager): EventContext {
+export function createEventContext(
+  spinner: Spinner,
+  stateManager: UIStateManager,
+): EventContext {
   return {
     spinner,
     stateManager,
@@ -24,10 +27,7 @@ export function createEventContext(spinner: Spinner, stateManager: UIStateManage
   }
 }
 
-export function handleEvent(
-  ctx: EventContext,
-  event: QueryEvent,
-): void {
+export function handleEvent(ctx: EventContext, event: QueryEvent): void {
   switch (event.type) {
     case 'text_delta': {
       if (!ctx.spinner.setGotFirstToken(true)) {
@@ -43,7 +43,10 @@ export function handleEvent(
       ctx.spinner.setGotFirstToken(true)
       if (ctx.lastToolName) process.stderr.write('\n')
       ctx.lastToolName = event.name
-      ctx.stateManager.setState({ status: 'executing_tools', currentToolName: event.name })
+      ctx.stateManager.setState({
+        status: 'executing_tools',
+        currentToolName: event.name,
+      })
       ctx.spinner.update(event.name + '...')
       ctx.spinner.start()
       break
@@ -85,13 +88,13 @@ export function handleEvent(
       if (event.turnCount > 1) {
         process.stderr.write(
           '\n' +
-          dim('  Tokens: ') +
-          yellow(String(ctx.totalInputTokens)) +
-          dim(' in / ') +
-          yellow(String(ctx.totalOutputTokens)) +
-          dim(' out | ') +
-          yellow(String(event.turnCount)) +
-          dim(' turns\n'),
+            dim('  Tokens: ') +
+            yellow(String(ctx.totalInputTokens)) +
+            dim(' in / ') +
+            yellow(String(ctx.totalOutputTokens)) +
+            dim(' out | ') +
+            yellow(String(event.turnCount)) +
+            dim(' turns\n'),
         )
       }
       break
@@ -112,7 +115,9 @@ export function handleEvent(
 
     case 'retry_event': {
       process.stderr.write(
-        yellow(`\n  [Retry ${event.attempt}/${event.maxRetries}] ${event.error}\n`),
+        yellow(
+          `\n  [Retry ${event.attempt}/${event.maxRetries}] ${event.error}\n`,
+        ),
       )
       break
     }

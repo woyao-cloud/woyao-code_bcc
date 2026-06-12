@@ -33,8 +33,7 @@ export function setAutoDetectedProvider(p: APIProvider | null): void {
  *   7. default -> firstParty
  */
 export function getAPIProvider(): APIProvider {
-  
- if (process.env.CLAUDE_CODE_USE_OPENAI === '1') return 'openai'
+  if (process.env.CLAUDE_CODE_USE_OPENAI === '1') return 'openai'
   const hasAnthropicAuth =
     !!process.env.ANTHROPIC_API_KEY || !!process.env.ANTHROPIC_AUTH_TOKEN
   const hasAnthropicBase = !!process.env.ANTHROPIC_BASE_URL
@@ -44,10 +43,6 @@ export function getAPIProvider(): APIProvider {
   }
 
   if (process.env.CLAUDE_CODE_USE_GEMINI === '1') return 'gemini'
-
- 
-
-  
 
   if (
     process.env.GEMINI_API_KEY &&

@@ -20,7 +20,8 @@ export const GitDiffTool: Tool = {
       },
       mode: {
         type: 'string',
-        description: 'Optional: "stats" for summary only, "hunks" for full patch details (default: "stats")',
+        description:
+          'Optional: "stats" for summary only, "hunks" for full patch details (default: "stats")',
         enum: ['stats', 'hunks'],
       },
     },
@@ -40,14 +41,22 @@ export const GitDiffTool: Tool = {
 
     const isGit = await getIsGit(cwd)
     if (!isGit) {
-      return { content: 'Not in a git repository', success: false, error: 'Not a git repo' }
+      return {
+        content: 'Not in a git repository',
+        success: false,
+        error: 'Not a git repo',
+      }
     }
 
     try {
       if (file) {
         const result = await fetchSingleFileGitDiff(cwd, file)
         if (!result) {
-          return { content: `No diff found for ${file}`, success: false, error: 'No diff' }
+          return {
+            content: `No diff found for ${file}`,
+            success: false,
+            error: 'No diff',
+          }
         }
         return {
           content: `File: ${result.filename} (${result.status})\n+${result.additions} -${result.deletions}\n\n${result.patch}`,
@@ -57,7 +66,11 @@ export const GitDiffTool: Tool = {
 
       const diffResult = await fetchGitDiff(cwd)
       if (!diffResult) {
-        return { content: 'No diff available', success: false, error: 'No diff' }
+        return {
+          content: 'No diff available',
+          success: false,
+          error: 'No diff',
+        }
       }
 
       const { stats, perFileStats } = diffResult
@@ -88,7 +101,11 @@ export const GitDiffTool: Tool = {
 
       return { content: output, success: true }
     } catch (e) {
-      return { content: `Git diff error: ${e}`, success: false, error: String(e) }
+      return {
+        content: `Git diff error: ${e}`,
+        success: false,
+        error: String(e),
+      }
     }
   },
   userFacingName: () => 'GitDiff',

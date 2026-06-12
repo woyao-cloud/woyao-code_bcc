@@ -96,7 +96,9 @@ export function messagesToOpenAIFormat(
     if (m.role === 'user' && Array.isArray(m.content)) {
       const toolResults = m.content.filter(
         (c: unknown) =>
-          typeof c === 'object' && c !== null && (c as Record<string, unknown>).type === 'tool_result',
+          typeof c === 'object' &&
+          c !== null &&
+          (c as Record<string, unknown>).type === 'tool_result',
       )
 
       if (toolResults.length > 0) {

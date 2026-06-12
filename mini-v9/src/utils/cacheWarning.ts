@@ -35,7 +35,8 @@ export function calculateCacheHitRate(
 ): number | null {
   if (!usage) return null
 
-  const { input_tokens, cache_creation_input_tokens, cache_read_input_tokens } = usage
+  const { input_tokens, cache_creation_input_tokens, cache_read_input_tokens } =
+    usage
 
   if (cache_read_input_tokens === 0 && cache_creation_input_tokens === 0) {
     return null

@@ -100,9 +100,7 @@ describe('compactMessages', () => {
     expect(compacted[compacted.length - 1].content).toBe('final')
     expect(compacted[compacted.length - 2].content).toBe('last')
     expect(typeof compacted[1]?.content).toBe('string')
-    expect(String(compacted[1]?.content)).toContain(
-      'Compacted',
-    )
+    expect(String(compacted[1]?.content)).toContain('Compacted')
   })
 
   test('returns all messages when count <= keepPairs*2', () => {

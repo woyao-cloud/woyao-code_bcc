@@ -283,21 +283,27 @@ export async function logTiming<T>(
 ): Promise<T> {
   const startTime = Date.now()
   logDebug(`Starting operation: ${operationName}`)
-  
+
   try {
     const result = await fn()
     const duration = Date.now() - startTime
-    
+
     if (duration >= warnThresholdMs) {
-      logWarning(`Slow operation: ${operationName} took ${duration}ms`, { duration })
+      logWarning(`Slow operation: ${operationName} took ${duration}ms`, {
+        duration,
+      })
     } else {
-      logDebug(`Completed operation: ${operationName} in ${duration}ms`, { duration })
+      logDebug(`Completed operation: ${operationName} in ${duration}ms`, {
+        duration,
+      })
     }
-    
+
     return result
   } catch (error) {
     const duration = Date.now() - startTime
-    logError(`Failed operation: ${operationName} after ${duration}ms`, error, { duration })
+    logError(`Failed operation: ${operationName} after ${duration}ms`, error, {
+      duration,
+    })
     throw error
   }
 }
@@ -312,21 +318,29 @@ export function logTimingSync<T>(
 ): T {
   const startTime = Date.now()
   logDebug(`Starting sync operation: ${operationName}`)
-  
+
   try {
     const result = fn()
     const duration = Date.now() - startTime
-    
+
     if (duration >= warnThresholdMs) {
-      logWarning(`Slow sync operation: ${operationName} took ${duration}ms`, { duration })
+      logWarning(`Slow sync operation: ${operationName} took ${duration}ms`, {
+        duration,
+      })
     } else {
-      logDebug(`Completed sync operation: ${operationName} in ${duration}ms`, { duration })
+      logDebug(`Completed sync operation: ${operationName} in ${duration}ms`, {
+        duration,
+      })
     }
-    
+
     return result
   } catch (error) {
     const duration = Date.now() - startTime
-    logError(`Failed sync operation: ${operationName} after ${duration}ms`, error, { duration })
+    logError(
+      `Failed sync operation: ${operationName} after ${duration}ms`,
+      error,
+      { duration },
+    )
     throw error
   }
 }

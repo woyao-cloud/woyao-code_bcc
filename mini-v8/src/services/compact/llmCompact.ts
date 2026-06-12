@@ -89,7 +89,10 @@ export async function llmCompact(
   messages: BetaMessageParam[],
   options: LLMCompactOptions = {},
 ): Promise<LLMCompactResult> {
-  const keepCount = Math.min(options.direction === 'up_to' ? 2 : 3, Math.max(1, messages.length - 1))
+  const keepCount = Math.min(
+    options.direction === 'up_to' ? 2 : 3,
+    Math.max(1, messages.length - 1),
+  )
   const tailSize = Math.min(keepCount * 2, messages.length - 1)
   let startIndex = Math.max(1, messages.length - tailSize)
 
@@ -187,7 +190,6 @@ export async function generateCompactSummary(
       }
 
       lastError = new Error('No text content in API response')
-
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
     }
@@ -244,7 +246,6 @@ export async function generatePartialCompactSummary(
       }
 
       lastError = new Error('No text content in API response')
-
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
     }
@@ -309,7 +310,6 @@ export async function generateCompactSummaryStreaming(
       }
 
       lastError = new Error('Empty streaming response')
-
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
     }
@@ -397,7 +397,9 @@ function extractSummaryContent(response: unknown): string | null {
       }
 
       // Try to extract <analysis> block (less ideal but still useful)
-      const analysisMatch = text.match(/<analysis>[\s\S]*?<\/analysis>\s*([\s\S]*)/)
+      const analysisMatch = text.match(
+        /<analysis>[\s\S]*?<\/analysis>\s*([\s\S]*)/,
+      )
       if (analysisMatch) {
         return analysisMatch[1].trim()
       }

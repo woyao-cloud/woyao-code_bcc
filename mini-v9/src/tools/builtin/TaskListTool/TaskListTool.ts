@@ -32,16 +32,11 @@ export const TaskListTool: Tool = {
       const blocked = blockedTaskIds.has(t.id) ? ' [BLOCKED]' : ''
       const ownerInfo = t.owner ? ` (${t.owner})` : ''
       const depInfo =
-        t.blockedBy.length > 0
-          ? ` [waits: ${t.blockedBy.join(', ')}]`
-          : ''
+        t.blockedBy.length > 0 ? ` [waits: ${t.blockedBy.join(', ')}]` : ''
       return `[${t.status}] ${t.id}: ${t.title}${ownerInfo}${blocked}${depInfo}`
     })
 
-    const parts: string[] = [
-      `${tasks.length} tasks:`,
-      ...lines,
-    ]
+    const parts: string[] = [`${tasks.length} tasks:`, ...lines]
 
     // Summary counts
     const pending = tasks.filter(t => t.status === 'pending').length

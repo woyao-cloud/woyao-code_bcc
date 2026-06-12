@@ -5,7 +5,18 @@
  */
 
 import { join } from 'path'
-import { savePlan, loadPlan, loadLatestPlan, updatePlanPhase, completePlan, cancelPlan, listPlans, generateSlug, getPlansDir, type PlanFile } from './planStore.js'
+import {
+  savePlan,
+  loadPlan,
+  loadLatestPlan,
+  updatePlanPhase,
+  completePlan,
+  cancelPlan,
+  listPlans,
+  generateSlug,
+  getPlansDir,
+  type PlanFile,
+} from './planStore.js'
 import {
   isV2Enabled,
   getV2PhaseInstructions,
@@ -24,12 +35,37 @@ import {
 // ============================================================
 
 export const PLAN_PHASES = [
-  { phase: 0, name: 'Interview', description: 'Ask clarifying questions to understand requirements before planning' },
-  { phase: 1, name: 'Explore', description: 'Explore the codebase using Explore agents' },
-  { phase: 2, name: 'Design', description: 'Design implementation approach using Plan agents' },
-  { phase: 3, name: 'Review', description: 'Review critical files and check alignment with requirements' },
-  { phase: 4, name: 'Final Plan', description: 'Write the final plan to the plan file' },
-  { phase: 5, name: 'Exit', description: 'Call ExitPlanMode to present the plan for approval' },
+  {
+    phase: 0,
+    name: 'Interview',
+    description:
+      'Ask clarifying questions to understand requirements before planning',
+  },
+  {
+    phase: 1,
+    name: 'Explore',
+    description: 'Explore the codebase using Explore agents',
+  },
+  {
+    phase: 2,
+    name: 'Design',
+    description: 'Design implementation approach using Plan agents',
+  },
+  {
+    phase: 3,
+    name: 'Review',
+    description: 'Review critical files and check alignment with requirements',
+  },
+  {
+    phase: 4,
+    name: 'Final Plan',
+    description: 'Write the final plan to the plan file',
+  },
+  {
+    phase: 5,
+    name: 'Exit',
+    description: 'Call ExitPlanMode to present the plan for approval',
+  },
 ] as const
 
 export type PlanPhaseName = (typeof PLAN_PHASES)[number]['name']
@@ -73,12 +109,15 @@ export function getPlanResults(): string[] {
  * Persists the plan to disk and sets up in-memory state.
  * When V2 interview phase is enabled, starts at phase 0.
  */
-export function enterPlanMode(plan?: string, options?: {
-  slug?: string
-  startPhase?: number
-  title?: string
-  agentId?: string
-}): { slug: string } {
+export function enterPlanMode(
+  plan?: string,
+  options?: {
+    slug?: string
+    startPhase?: number
+    title?: string
+    agentId?: string
+  },
+): { slug: string } {
   isPlanMode = true
   planContent = plan ?? ''
   planResults = []
@@ -152,9 +191,19 @@ export function advancePlanPhase(): number {
 /**
  * Get the current phase info.
  */
-export function getCurrentPhaseInfo(): { phase: number; name: string; description: string } {
+export function getCurrentPhaseInfo(): {
+  phase: number
+  name: string
+  description: string
+} {
   const info = PLAN_PHASES.find(p => p.phase === currentPhase)
-  return info ?? { phase: currentPhase, name: `Phase ${currentPhase}`, description: '' }
+  return (
+    info ?? {
+      phase: currentPhase,
+      name: `Phase ${currentPhase}`,
+      description: '',
+    }
+  )
 }
 
 /**
@@ -201,7 +250,9 @@ export function getPlanSummary(): string {
       extraLines.push(`- Phase: ${phaseInfo.phase}/5 — ${phaseInfo.name}`)
       extraLines.push(`- Plan slug: ${planSlug}`)
       if (planContent) {
-        extraLines.push(`- Plan: ${planContent.slice(0, 500)}${planContent.length > 500 ? '...' : ''}`)
+        extraLines.push(
+          `- Plan: ${planContent.slice(0, 500)}${planContent.length > 500 ? '...' : ''}`,
+        )
       }
       if (planResults.length > 0) {
         extraLines.push(`- Steps completed: ${planResults.length}`)
@@ -217,7 +268,9 @@ export function getPlanSummary(): string {
   lines.push(`- Phase: ${phaseInfo.phase}/5 — ${phaseInfo.name}`)
   lines.push(`- Plan slug: ${planSlug}`)
   if (planContent) {
-    lines.push(`- Plan: ${planContent.slice(0, 500)}${planContent.length > 500 ? '...' : ''}`)
+    lines.push(
+      `- Plan: ${planContent.slice(0, 500)}${planContent.length > 500 ? '...' : ''}`,
+    )
   }
   if (planResults.length > 0) {
     lines.push(`- Steps completed: ${planResults.length}`)
@@ -245,13 +298,20 @@ export function getPlanPhaseInstructions(): string {
   const lines: string[] = []
   lines.push('# Plan Mode Workflow')
   lines.push('')
-  lines.push('You are in **Plan Mode** — a structured workflow for designing implementation plans before writing code.')
+  lines.push(
+    'You are in **Plan Mode** — a structured workflow for designing implementation plans before writing code.',
+  )
   lines.push('')
   lines.push('## Phases')
   lines.push('')
 
   for (const p of PLAN_PHASES) {
-    const marker = p.phase === currentPhase ? '→ **ACTIVE**' : p.phase < currentPhase ? '✓ Complete' : 'Pending'
+    const marker =
+      p.phase === currentPhase
+        ? '→ **ACTIVE**'
+        : p.phase < currentPhase
+          ? '✓ Complete'
+          : 'Pending'
     lines.push(`### Phase ${p.phase}: ${p.name} — ${marker}`)
     lines.push(p.description)
     lines.push('')
@@ -264,23 +324,41 @@ export function getPlanPhaseInstructions(): string {
   switch (currentPhase) {
     case 0:
       lines.push('### Phase 0: Interview')
-      lines.push('- Use **AskUserQuestion** to ask clarifying questions about the task:')
+      lines.push(
+        '- Use **AskUserQuestion** to ask clarifying questions about the task:',
+      )
       lines.push('  - What are the exact requirements and acceptance criteria?')
-      lines.push('  - Are there any constraints or preferences (performance, security, compatibility)?')
-      lines.push('  - What is the priority: correctness, speed, maintainability?')
+      lines.push(
+        '  - Are there any constraints or preferences (performance, security, compatibility)?',
+      )
+      lines.push(
+        '  - What is the priority: correctness, speed, maintainability?',
+      )
       lines.push('  - Are there existing patterns or designs to follow?')
-      lines.push('- Ask questions one at a time to keep the conversation focused')
+      lines.push(
+        '- Ask questions one at a time to keep the conversation focused',
+      )
       lines.push('- Collect the answers and incorporate them into the plan')
       lines.push('- When you have enough clarity, advance to Phase 1: Explore')
       lines.push('')
-      lines.push('IMPORTANT: Do NOT skip to exploring yet. First gather requirements.')
+      lines.push(
+        'IMPORTANT: Do NOT skip to exploring yet. First gather requirements.',
+      )
       break
     case 1:
       lines.push('### Phase 1: Explore')
-      lines.push('- **Launch multiple Explore agents in parallel** (2-3) to understand the codebase from different angles:')
-      lines.push('  - Agent 1: Explore the overall architecture and project structure')
-      lines.push('  - Agent 2: Find existing patterns and similar features as reference')
-      lines.push('  - Agent 3: Trace relevant code paths and identify key files')
+      lines.push(
+        '- **Launch multiple Explore agents in parallel** (2-3) to understand the codebase from different angles:',
+      )
+      lines.push(
+        '  - Agent 1: Explore the overall architecture and project structure',
+      )
+      lines.push(
+        '  - Agent 2: Find existing patterns and similar features as reference',
+      )
+      lines.push(
+        '  - Agent 3: Trace relevant code paths and identify key files',
+      )
       lines.push('- Use the Agent tool with agentType: "Explore" for each')
       lines.push('- Launch all agents simultaneously so they run in parallel')
       lines.push('- After all agents complete, synthesize their findings')
@@ -288,8 +366,12 @@ export function getPlanPhaseInstructions(): string {
       break
     case 2:
       lines.push('### Phase 2: Design')
-      lines.push('- Use the **Agent tool** to spawn **Plan agents** to design implementation approaches')
-      lines.push('- Consider launching 2 Plan agents with different perspectives:')
+      lines.push(
+        '- Use the **Agent tool** to spawn **Plan agents** to design implementation approaches',
+      )
+      lines.push(
+        '- Consider launching 2 Plan agents with different perspectives:',
+      )
       lines.push('  - One focused on architecture and structure')
       lines.push('  - One focused on implementation details and edge cases')
       lines.push('- Synthesize the best of both approaches')

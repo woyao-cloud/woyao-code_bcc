@@ -1,5 +1,9 @@
 import type { Tool, ToolUseContext, ToolResult } from '../../../Tool.js'
-import { getTask, getTasksBlocking, getTaskBlockedBy } from '../../../services/taskStore.js'
+import {
+  getTask,
+  getTasksBlocking,
+  getTaskBlockedBy,
+} from '../../../services/taskStore.js'
 
 export const TaskGetTool: Tool = {
   name: 'TaskGet',

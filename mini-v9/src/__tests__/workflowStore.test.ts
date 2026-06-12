@@ -85,23 +85,33 @@ describe('workflowStore', () => {
     const wf = createWorkflow(sampleInput)
     const stepId = wf.steps[0].id
 
-    const updated = updateStep(wf.id, stepId, { id: stepId, status: 'in_progress' })
+    const updated = updateStep(wf.id, stepId, {
+      id: stepId,
+      status: 'in_progress',
+    })
     expect(updated).toBeDefined()
     expect(updated!.status).toBe('in_progress')
     expect(updated!.startedAt).toBeDefined()
 
-    const completed = updateStep(wf.id, stepId, { id: stepId, status: 'completed' })
+    const completed = updateStep(wf.id, stepId, {
+      id: stepId,
+      status: 'completed',
+    })
     expect(completed!.status).toBe('completed')
     expect(completed!.completedAt).toBeDefined()
   })
 
   test('updateStep returns undefined for unknown step', () => {
     const wf = createWorkflow(sampleInput)
-    expect(updateStep(wf.id, 'unknown', { id: 'unknown', status: 'completed' })).toBeUndefined()
+    expect(
+      updateStep(wf.id, 'unknown', { id: 'unknown', status: 'completed' }),
+    ).toBeUndefined()
   })
 
   test('updateStep returns undefined for unknown workflow', () => {
-    expect(updateStep('unknown', 'step1', { id: 'step1', status: 'completed' })).toBeUndefined()
+    expect(
+      updateStep('unknown', 'step1', { id: 'step1', status: 'completed' }),
+    ).toBeUndefined()
   })
 
   test('auto-completes workflow when all steps done', () => {
@@ -181,7 +191,11 @@ describe('workflowStore', () => {
   test('updateStep updates result field', () => {
     const wf = createWorkflow(sampleInput)
     const stepId = wf.steps[0].id
-    updateStep(wf.id, stepId, { id: stepId, status: 'completed', result: 'Done!' })
+    updateStep(wf.id, stepId, {
+      id: stepId,
+      status: 'completed',
+      result: 'Done!',
+    })
     const found = getWorkflow(wf.id)
     expect(found!.steps[0].result).toBe('Done!')
   })

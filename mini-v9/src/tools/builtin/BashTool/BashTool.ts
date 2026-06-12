@@ -33,7 +33,8 @@ export const BashTool: Tool = {
     const isBare = await isCurrentDirectoryBareGitRepo(targetCwd)
     if (isBare) {
       return {
-        content: 'Command blocked: bare git repository detected. Bare repos have no working tree and can be used for sandbox escape.',
+        content:
+          'Command blocked: bare git repository detected. Bare repos have no working tree and can be used for sandbox escape.',
         success: false,
         error: 'Bare git repository detected',
       }

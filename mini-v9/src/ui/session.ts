@@ -55,7 +55,8 @@ export function resolveResumeSnapshot(
   args: ParsedCLIArgs,
 ): PersistedSessionSnapshot | null {
   if (!args.resumeRequested) return null
-  if (args.resumeSessionId) return loadConversationSnapshot(args.resumeSessionId)
+  if (args.resumeSessionId)
+    return loadConversationSnapshot(args.resumeSessionId)
   return loadLatestConversationSnapshot()
 }
 
@@ -78,10 +79,13 @@ export function createConversationFromSnapshot(
 ): ConversationBuffers {
   if (!snapshot) return createConversationBuffers()
 
-  const normalizedMessages = normalizeMessages(snapshot.conversation.fullMessages)
+  const normalizedMessages = normalizeMessages(
+    snapshot.conversation.fullMessages,
+  )
   const buffers = createConversationBuffers(normalizedMessages, {
     compactBoundaries: snapshot.conversation.compactBoundaries,
-    forceCompactNextProjection: snapshot.conversation.forceCompactNextProjection,
+    forceCompactNextProjection:
+      snapshot.conversation.forceCompactNextProjection,
     restoreToolResultBudgetState: true,
     toolResultBudgetRecords: snapshot.conversation.toolResultBudgetRecords,
   })

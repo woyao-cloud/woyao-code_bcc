@@ -53,9 +53,16 @@ afterAll(() => {
 // module instance so cross-file poorMode.js mocks cannot replace the subject
 // under test during Bun's shared coverage run.
 const poorModeModulePath = '../poorMode.js?poorModeTest'
-const { isPoorModeActive, setPoorMode } = (await import(
+const poorModeModule = (await import(
   poorModeModulePath
 )) as typeof import('../poorMode.js')
+const {
+  isPoorModeActive,
+  setPoorMode,
+  getPoorModeSince,
+  getPoorModeStats,
+  incrementSkippedMemoryExtraction,
+} = poorModeModule
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -114,5 +121,64 @@ describe('setPoorMode — persists to settings', () => {
     setPoorMode(false)
     setPoorMode(false)
     expect(isPoorModeActive()).toBe(false)
+  })
+})
+
+describe('getPoorModeSince — tracks when poor mode was enabled', () => {
+  beforeEach(() => {
+    lastUpdate = null
+    setPoorMode(false) // reset state
+  })
+
+  test('returns null when poor mode has never been enabled', () => {
+    setPoorMode(false)
+    // use already-imported getPoorModeSince from module-level import
+    expect(getPoorModeSince()).toBeNull()
+  })
+
+  test('returns a timestamp when poor mode is enabled', () => {
+    const before = Date.now()
+    setPoorMode(true)
+    const after = Date.now()
+    // use already-imported getPoorModeSince from module-level import
+    const since = getPoorModeSince()
+    expect(since).not.toBeNull()
+    expect(since! >= before).toBe(true)
+    expect(since! <= after).toBe(true)
+  })
+
+  test('returns null after poor mode is disabled', () => {
+    setPoorMode(true)
+    setPoorMode(false)
+    // use already-imported getPoorModeSince from module-level import
+    expect(getPoorModeSince()).toBeNull()
+  })
+})
+
+describe('getPoorModeStats — tracks skipped operations', () => {
+  beforeEach(() => {
+    lastUpdate = null
+    setPoorMode(false) // reset state
+  })
+
+  test('returns zero skipped when poor mode is off', () => {
+    setPoorMode(false)
+    const stats = getPoorModeStats()
+    expect(stats.skippedMemoryExtractions).toBe(0)
+  })
+
+  test('increments skipped count', () => {
+    setPoorMode(true)
+    incrementSkippedMemoryExtraction()
+    incrementSkippedMemoryExtraction()
+    expect(getPoorModeStats().skippedMemoryExtractions).toBe(2)
+  })
+
+  test('resets count when poor mode is toggled off and on again', () => {
+    setPoorMode(true)
+    incrementSkippedMemoryExtraction()
+    setPoorMode(false)
+    setPoorMode(true)
+    expect(getPoorModeStats().skippedMemoryExtractions).toBe(0)
   })
 })

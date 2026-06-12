@@ -68,7 +68,9 @@ function buildDialogLines(req: PermissionRequest): string[] {
 
   // Options
   lines.push(boxText(green('(y) Allow') + '    ' + red('(n) Deny')))
-  lines.push(boxText(cyan('(a) Always Allow') + '  ' + yellow('(d) Always Deny')))
+  lines.push(
+    boxText(cyan('(a) Always Allow') + '  ' + yellow('(d) Always Deny')),
+  )
 
   lines.push(boxBottom())
 

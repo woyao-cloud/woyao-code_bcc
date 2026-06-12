@@ -202,13 +202,12 @@ export function adjustIndexToPreserveAPIInvariants(
     )
 
     // Walk backwards to find the assistant messages with those tool_use blocks
-    for (
-      let i = adjustedIndex - 1;
-      i >= 1 && neededToolUseIds.size > 0;
-      i--
-    ) {
+    for (let i = adjustedIndex - 1; i >= 1 && neededToolUseIds.size > 0; i--) {
       const message = messages[i]!
-      if (message.role === 'assistant' && hasToolUseWithIds(message, neededToolUseIds)) {
+      if (
+        message.role === 'assistant' &&
+        hasToolUseWithIds(message, neededToolUseIds)
+      ) {
         adjustedIndex = i
         // Remove found IDs from needed set
         for (const id of getToolUseIds(message)) {
@@ -238,7 +237,8 @@ export function calculateMessagesToKeepIndex(
 
   // Start from the message after lastSummarizedIndex
   // If lastSummarizedIndex is -1 or beyond, start from messages.length
-  let startIndex = lastSummarizedIndex >= 0 ? lastSummarizedIndex + 1 : messages.length
+  let startIndex =
+    lastSummarizedIndex >= 0 ? lastSummarizedIndex + 1 : messages.length
 
   // Clamp to valid range
   if (startIndex >= messages.length) {
@@ -333,7 +333,10 @@ export function trySessionMemoryCompaction(
 
   try {
     // Calculate the starting index for messages to keep
-    const startIndex = calculateMessagesToKeepIndex(messages, lastSummarizedIndex)
+    const startIndex = calculateMessagesToKeepIndex(
+      messages,
+      lastSummarizedIndex,
+    )
 
     if (startIndex <= 1) {
       // Nothing to compact
@@ -344,7 +347,8 @@ export function trySessionMemoryCompaction(
     const removedTokenCount = estimateTokens(messages.slice(1, startIndex))
 
     // Truncate session memory for compaction use
-    const { truncatedContent } = truncateSessionMemoryForCompact(sessionMemoryContent)
+    const { truncatedContent } =
+      truncateSessionMemoryForCompact(sessionMemoryContent)
 
     // Build summary message with session memory marker
     const summaryText = `${SESSION_MEMORY_COMPACTION_MARKER}\n${truncatedContent}
@@ -390,7 +394,8 @@ export function getMessageFingerprint(msg: BetaMessageParam): string {
         ? msg.content
             .map(b => {
               const block = b as unknown as Record<string, unknown>
-              if (block.type === 'text' && typeof block.text === 'string') return block.text
+              if (block.type === 'text' && typeof block.text === 'string')
+                return block.text
               return ''
             })
             .join(' ')

@@ -42,7 +42,10 @@ import type {
   AgentTaskState,
 } from './agentTypes.js'
 import { getAgent } from './agentRegistry.js'
-import { shouldSummarize, buildAgentProgressSummary } from './agentSummarization.js'
+import {
+  shouldSummarize,
+  buildAgentProgressSummary,
+} from './agentSummarization.js'
 import type { Tool, ToolUseContext } from '../Tool.js'
 import type { ContentItem } from '../types/message.js'
 import type {

@@ -135,7 +135,11 @@ describe('getGithubRepo', () => {
 describe('parseGitNumstat', () => {
   test('parses single file', () => {
     const result = parseGitNumstat('1\t2\tsrc/file.ts')
-    expect(result.stats).toEqual({ filesCount: 1, linesAdded: 1, linesRemoved: 2 })
+    expect(result.stats).toEqual({
+      filesCount: 1,
+      linesAdded: 1,
+      linesRemoved: 2,
+    })
     expect(result.perFileStats.get('src/file.ts')).toEqual({
       added: 1,
       removed: 2,
@@ -146,7 +150,11 @@ describe('parseGitNumstat', () => {
   test('parses multiple files', () => {
     const input = '10\t5\tsrc/a.ts\n3\t8\tsrc/b.ts'
     const result = parseGitNumstat(input)
-    expect(result.stats).toEqual({ filesCount: 2, linesAdded: 13, linesRemoved: 13 })
+    expect(result.stats).toEqual({
+      filesCount: 2,
+      linesAdded: 13,
+      linesRemoved: 13,
+    })
   })
 
   test('marks binary files', () => {
@@ -162,7 +170,9 @@ describe('parseGitNumstat', () => {
 
 describe('parseShortstat', () => {
   test('parses full shortstat', () => {
-    const result = parseShortstat('3 files changed, 45 insertions(+), 12 deletions(-)')
+    const result = parseShortstat(
+      '3 files changed, 45 insertions(+), 12 deletions(-)',
+    )
     expect(result).toEqual({ filesCount: 3, linesAdded: 45, linesRemoved: 12 })
   })
 

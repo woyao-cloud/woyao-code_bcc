@@ -24,12 +24,37 @@ import {
 // ============================================================
 
 export const PLAN_PHASES_V2 = [
-  { phase: 0, name: 'Interview', description: 'Ask clarifying questions to understand requirements before planning' },
-  { phase: 1, name: 'Explore', description: 'Explore the codebase using Explore agents' },
-  { phase: 2, name: 'Design', description: 'Design implementation approach using Plan agents' },
-  { phase: 3, name: 'Review', description: 'Review critical files and check alignment with requirements' },
-  { phase: 4, name: 'Final Plan', description: 'Write the final plan to the plan file' },
-  { phase: 5, name: 'Exit', description: 'Call ExitPlanMode to present the plan for approval' },
+  {
+    phase: 0,
+    name: 'Interview',
+    description:
+      'Ask clarifying questions to understand requirements before planning',
+  },
+  {
+    phase: 1,
+    name: 'Explore',
+    description: 'Explore the codebase using Explore agents',
+  },
+  {
+    phase: 2,
+    name: 'Design',
+    description: 'Design implementation approach using Plan agents',
+  },
+  {
+    phase: 3,
+    name: 'Review',
+    description: 'Review critical files and check alignment with requirements',
+  },
+  {
+    phase: 4,
+    name: 'Final Plan',
+    description: 'Write the final plan to the plan file',
+  },
+  {
+    phase: 5,
+    name: 'Exit',
+    description: 'Call ExitPlanMode to present the plan for approval',
+  },
 ] as const
 
 export type PlanPhaseNameV2 = (typeof PLAN_PHASES_V2)[number]['name']
@@ -93,7 +118,9 @@ let agentContexts = new Map<string, AgentPlanContext>()
 // Config management
 // ============================================================
 
-export function setPlanModeV2Config(overrides: Partial<PlanModeV2Config>): PlanModeV2Config {
+export function setPlanModeV2Config(
+  overrides: Partial<PlanModeV2Config>,
+): PlanModeV2Config {
   config = { ...config, ...overrides }
   return config
 }
@@ -134,7 +161,9 @@ export function registerAgentPlanContext(
   })
 }
 
-export function getAgentPlanContext(agentId: string): AgentPlanContext | undefined {
+export function getAgentPlanContext(
+  agentId: string,
+): AgentPlanContext | undefined {
   return agentContexts.get(agentId)
 }
 
@@ -196,19 +225,28 @@ export function getV2PhaseInstructions(
 
   const ec = agentCounts?.explore ?? config.exploreAgentCount
   const pc = agentCounts?.plan ?? config.planAgentCount
-  const phases = config.enableInterviewPhase ? PLAN_PHASES_V2 : PLAN_PHASES_V2.filter(p => p.phase > 0)
+  const phases = config.enableInterviewPhase
+    ? PLAN_PHASES_V2
+    : PLAN_PHASES_V2.filter(p => p.phase > 0)
 
   const lines: string[] = []
   lines.push('# Plan Mode V2 Workflow')
   lines.push('')
-  lines.push('You are in **Plan Mode V2** — an enhanced structured workflow for designing implementation plans.')
+  lines.push(
+    'You are in **Plan Mode V2** — an enhanced structured workflow for designing implementation plans.',
+  )
   lines.push('')
 
   // Phase list
   lines.push('## Phases')
   lines.push('')
   for (const p of phases) {
-    const marker = p.phase === currentPhase ? '→ **ACTIVE**' : p.phase < currentPhase ? '✓ Complete' : 'Pending'
+    const marker =
+      p.phase === currentPhase
+        ? '→ **ACTIVE**'
+        : p.phase < currentPhase
+          ? '✓ Complete'
+          : 'Pending'
     lines.push(`### Phase ${p.phase}: ${p.name} — ${marker}`)
     lines.push(p.description)
     lines.push('')
@@ -226,33 +264,45 @@ export function getV2PhaseInstructions(
   // Phase 0: Interview (new)
   if (currentPhase === 0 && config.enableInterviewPhase) {
     lines.push('### Phase 0: Interview')
-    lines.push('- Use **AskUserQuestion** to ask clarifying questions about the task:')
+    lines.push(
+      '- Use **AskUserQuestion** to ask clarifying questions about the task:',
+    )
     lines.push('  - What are the exact requirements and acceptance criteria?')
-    lines.push('  - Are there any constraints or preferences (performance, security, compatibility)?')
+    lines.push(
+      '  - Are there any constraints or preferences (performance, security, compatibility)?',
+    )
     lines.push('  - What is the priority: correctness, speed, maintainability?')
     lines.push('  - Are there existing patterns or designs to follow?')
     lines.push('- Ask questions one at a time to keep the conversation focused')
     lines.push('- Collect the answers and incorporate them into the plan')
     lines.push('- When you have enough clarity, advance to Phase 1: Explore')
     lines.push('')
-    lines.push('IMPORTANT: Do NOT skip to exploring yet. First gather requirements.')
+    lines.push(
+      'IMPORTANT: Do NOT skip to exploring yet. First gather requirements.',
+    )
     return lines.join('\n')
   }
 
   // Phase 1: Explore — enhanced with configurable agent count
   if (currentPhase === 1) {
     lines.push('### Phase 1: Explore')
-    lines.push(`- Launch **${ec} Explore agents in parallel** to understand the codebase from different angles:`)
+    lines.push(
+      `- Launch **${ec} Explore agents in parallel** to understand the codebase from different angles:`,
+    )
     const exploreTasks = [
       'Explore the overall architecture and project structure',
       'Find existing patterns and similar features as reference',
       'Trace relevant code paths and identify key files',
     ]
     for (let i = 0; i < ec; i++) {
-      const task = exploreTasks[i % exploreTasks.length] ?? 'Analyze codebase from a unique perspective'
+      const task =
+        exploreTasks[i % exploreTasks.length] ??
+        'Analyze codebase from a unique perspective'
       lines.push(`  - Agent ${i + 1} (Explore): "${task}"`)
     }
-    lines.push(`- Launch all ${ec} agents simultaneously so they run in parallel`)
+    lines.push(
+      `- Launch all ${ec} agents simultaneously so they run in parallel`,
+    )
     lines.push('- After all agents complete, synthesize their findings')
     lines.push('- When ready, advance to Phase 2: Design')
     return lines.join('\n')
@@ -261,13 +311,17 @@ export function getV2PhaseInstructions(
   // Phase 2: Design — enhanced with configurable agent count
   if (currentPhase === 2) {
     lines.push('### Phase 2: Design')
-    lines.push(`- Use the **Agent tool** to spawn **${pc} Plan agents** to design implementation approaches:`)
+    lines.push(
+      `- Use the **Agent tool** to spawn **${pc} Plan agents** to design implementation approaches:`,
+    )
     const planTasks = [
       'Focused on architecture and structure',
       'Focused on implementation details and edge cases',
     ]
     for (let i = 0; i < pc; i++) {
-      const task = planTasks[i % planTasks.length] ?? 'Design approach from a unique perspective'
+      const task =
+        planTasks[i % planTasks.length] ??
+        'Design approach from a unique perspective'
       lines.push(`  - Agent ${i + 1} (Plan): ${task}`)
     }
     lines.push(`- Synthesize the best of both approaches`)
@@ -288,7 +342,9 @@ export function getV2PhaseInstructions(
 
   // Phase 4: Final Plan
   if (currentPhase === 4) {
-    const planFilePath = planSlug ? join(getPlansDir(), `${planSlug}.md`) : 'the plan file'
+    const planFilePath = planSlug
+      ? join(getPlansDir(), `${planSlug}.md`)
+      : 'the plan file'
     lines.push('### Phase 4: Final Plan')
     lines.push('- Write the final plan to the plan file using FileWrite/Edit')
     lines.push(`- The plan file is at: ${planFilePath}`)
@@ -306,7 +362,9 @@ export function getV2PhaseInstructions(
   }
 
   // Generic fallback
-  lines.push(`You are in Phase ${currentPhase}. Follow the phase instructions above.`)
+  lines.push(
+    `You are in Phase ${currentPhase}. Follow the phase instructions above.`,
+  )
 
   // Rules
   lines.push('')
@@ -323,9 +381,12 @@ export function getV2PhaseInstructions(
 // Plan summary for cross-session continuity
 // ============================================================
 
-export function buildPlanSummary(slug: string, options?: {
-  includeContent?: boolean
-}): PlanSummary | null {
+export function buildPlanSummary(
+  slug: string,
+  options?: {
+    includeContent?: boolean
+  },
+): PlanSummary | null {
   const plan = loadPlan(slug)
   if (!plan) return null
 
@@ -337,7 +398,10 @@ export function buildPlanSummary(slug: string, options?: {
     status: plan.meta.status,
     phase: plan.meta.currentPhase,
     phaseName: phaseInfo?.name ?? `Phase ${plan.meta.currentPhase}`,
-    stepCount: plan.content.split('\n').filter(l => l.trim().startsWith('- [') || l.trim().startsWith('* [')).length,
+    stepCount: plan.content
+      .split('\n')
+      .filter(l => l.trim().startsWith('- [') || l.trim().startsWith('* ['))
+      .length,
     createdAt: plan.meta.createdAt,
     updatedAt: plan.meta.updatedAt,
   }
@@ -379,7 +443,13 @@ export function listRecentPlans(limit?: number): PlanSummary[] {
       status: meta.status,
       phase: meta.currentPhase,
       phaseName: phaseInfo?.name ?? `Phase ${meta.currentPhase}`,
-      stepCount: plan ? plan.content.split('\n').filter(l => l.trim().startsWith('- [') || l.trim().startsWith('* [')).length : 0,
+      stepCount: plan
+        ? plan.content
+            .split('\n')
+            .filter(
+              l => l.trim().startsWith('- [') || l.trim().startsWith('* ['),
+            ).length
+        : 0,
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
     }

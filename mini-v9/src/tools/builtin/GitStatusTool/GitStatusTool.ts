@@ -12,7 +12,8 @@ export const GitStatusTool: Tool = {
     properties: {
       verbose: {
         type: 'boolean',
-        description: 'Show full details including per-file status and recent commits (default: true)',
+        description:
+          'Show full details including per-file status and recent commits (default: true)',
       },
     },
     required: [],
@@ -31,7 +32,11 @@ export const GitStatusTool: Tool = {
     try {
       const gitState = await getGitState(cwd)
       if (!gitState) {
-        return { content: 'Not in a git repository', success: false, error: 'Not a git repo' }
+        return {
+          content: 'Not in a git repository',
+          success: false,
+          error: 'Not a git repo',
+        }
       }
 
       const gitStatus = await getGitStatus(cwd)
@@ -56,25 +61,36 @@ export const GitStatusTool: Tool = {
       if (verbose && gitStatus.isGit) {
         if (gitStatus.hasStagedChanges) {
           parts.push('\nStaged changes:')
-          const staged = await (await import('../../../utils/git.js')).getStagedFiles(cwd)
+          const staged = await (
+            await import('../../../utils/git.js')
+          ).getStagedFiles(cwd)
           for (const f of staged) parts.push(`  ${f}`)
         }
         if (gitStatus.hasUnstagedChanges) {
           parts.push('\nUnstaged changes:')
-          const modified = await (await import('../../../utils/git.js')).getModifiedFiles(cwd)
+          const modified = await (
+            await import('../../../utils/git.js')
+          ).getModifiedFiles(cwd)
           for (const f of modified) parts.push(`  ${f}`)
         }
         if (gitStatus.hasUntrackedFiles) {
           parts.push('\nUntracked files:')
-          const untracked = await (await import('../../../utils/git.js')).getUntrackedFiles(cwd)
+          const untracked = await (
+            await import('../../../utils/git.js')
+          ).getUntrackedFiles(cwd)
           for (const f of untracked.slice(0, 20)) parts.push(`  ${f}`)
-          if (untracked.length > 20) parts.push(`  ... and ${untracked.length - 20} more`)
+          if (untracked.length > 20)
+            parts.push(`  ... and ${untracked.length - 20} more`)
         }
       }
 
       return { content: parts.join('\n'), success: true }
     } catch (e) {
-      return { content: `Git status error: ${e}`, success: false, error: String(e) }
+      return {
+        content: `Git status error: ${e}`,
+        success: false,
+        error: String(e),
+      }
     }
   },
   userFacingName: () => 'GitStatus',

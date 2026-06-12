@@ -14,7 +14,9 @@ import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages
  *   [User("u1"), Assistant("a1"), User("tr1"), Assistant("a2"), User("u2"), Assistant("a3")]
  *   → [[User("u1"), Assistant("a1")], [User("tr1"), Assistant("a2")], [User("u2"), Assistant("a3")]]
  */
-export function groupByApiRound(messages: BetaMessageParam[]): BetaMessageParam[][] {
+export function groupByApiRound(
+  messages: BetaMessageParam[],
+): BetaMessageParam[][] {
   const groups: BetaMessageParam[][] = []
   let current: BetaMessageParam[] = []
 

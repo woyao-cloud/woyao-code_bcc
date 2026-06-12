@@ -8,13 +8,10 @@ import {
 
 describe('agentSummarization', () => {
   test('buildAgentProgressSummary creates summary with correct fields', () => {
-    const summary = buildAgentProgressSummary(
-      'agent-123',
-      5,
-      10000,
-      8,
-      ['Researched auth patterns', 'Found JWT implementation'],
-    )
+    const summary = buildAgentProgressSummary('agent-123', 5, 10000, 8, [
+      'Researched auth patterns',
+      'Found JWT implementation',
+    ])
     expect(summary.agentId).toBe('agent-123')
     expect(summary.turnCount).toBe(5)
     expect(summary.totalTokens).toBe(10000)
@@ -31,16 +28,20 @@ describe('agentSummarization', () => {
   test('buildAgentProgressSummary truncates long output', () => {
     const longOutput = ['A'.repeat(1000)]
     const summary = buildAgentProgressSummary(
-      'agent-1', 10, 50000, 20, longOutput,
+      'agent-1',
+      10,
+      50000,
+      20,
+      longOutput,
       { interval: 5, maxLength: 100 },
     )
     expect(summary.summary.length).toBeLessThanOrEqual(120)
   })
 
   test('formatSummaryForNotification returns formatted text', () => {
-    const summary = buildAgentProgressSummary(
-      'agent-1', 3, 1500, 2, ['Making progress'],
-    )
+    const summary = buildAgentProgressSummary('agent-1', 3, 1500, 2, [
+      'Making progress',
+    ])
     const text = formatSummaryForNotification(summary)
     expect(text).toContain('Turn 3')
     expect(text).toContain('1500 tokens')

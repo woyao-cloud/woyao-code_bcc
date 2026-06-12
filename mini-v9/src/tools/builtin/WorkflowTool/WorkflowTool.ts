@@ -29,7 +29,8 @@ export const WorkflowTool: Tool = {
       },
       id: {
         type: 'string',
-        description: 'Workflow ID (required for update, get, progress, update_status)',
+        description:
+          'Workflow ID (required for update, get, progress, update_status)',
       },
       title: {
         type: 'string',
@@ -58,7 +59,10 @@ export const WorkflowTool: Tool = {
           properties: {
             name: { type: 'string', description: 'Step name' },
             description: { type: 'string', description: 'Step description' },
-            phase: { type: 'number', description: 'Phase number (1-based index)' },
+            phase: {
+              type: 'number',
+              description: 'Phase number (1-based index)',
+            },
             assignee: { type: 'string', description: 'Optional assignee' },
           },
           required: ['name', 'description', 'phase'],
@@ -72,7 +76,8 @@ export const WorkflowTool: Tool = {
       status: {
         type: 'string',
         enum: ['pending', 'in_progress', 'completed', 'failed', 'skipped'],
-        description: 'New step status (for update) or workflow status (for update_status)',
+        description:
+          'New step status (for update) or workflow status (for update_status)',
       },
       result: {
         type: 'string',
@@ -179,13 +184,18 @@ export const WorkflowTool: Tool = {
 
         for (const phase of workflow.phases) {
           const phaseSteps = workflow.steps.filter(s => s.phase === phase.order)
-          parts.push(`Phase ${phase.order}: ${phase.name} (${phaseSteps.length} steps)`)
+          parts.push(
+            `Phase ${phase.order}: ${phase.name} (${phaseSteps.length} steps)`,
+          )
           if (phase.description) {
             parts.push(`  ${phase.description}`)
           }
         }
 
-        parts.push('', `Use Workflow progress id:${workflow.id} to track progress.`)
+        parts.push(
+          '',
+          `Use Workflow progress id:${workflow.id} to track progress.`,
+        )
 
         return {
           content: parts.join('\n'),
@@ -215,11 +225,19 @@ export const WorkflowTool: Tool = {
 
         const status = input.status ? String(input.status).trim() : undefined
         const result = input.result ? String(input.result) : undefined
-        const assignee = input.assignee ? String(input.assignee).trim() : undefined
+        const assignee = input.assignee
+          ? String(input.assignee).trim()
+          : undefined
 
         const updatedStep = updateStep(id, stepId, {
           id: stepId,
-          status: status as 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped' | undefined,
+          status: status as
+            | 'pending'
+            | 'in_progress'
+            | 'completed'
+            | 'failed'
+            | 'skipped'
+            | undefined,
           result,
           assignee,
         })
@@ -274,7 +292,10 @@ export const WorkflowTool: Tool = {
           }
         }
 
-        const updated = updateWorkflowStatus(id, status as 'active' | 'completed' | 'cancelled')
+        const updated = updateWorkflowStatus(
+          id,
+          status as 'active' | 'completed' | 'cancelled',
+        )
         if (!updated) {
           return {
             content: `Workflow not found: ${id}`,
@@ -291,7 +312,10 @@ export const WorkflowTool: Tool = {
 
       case 'list': {
         const filterStatus = input.filter_status
-          ? String(input.filter_status).trim() as 'active' | 'completed' | 'cancelled'
+          ? (String(input.filter_status).trim() as
+              | 'active'
+              | 'completed'
+              | 'cancelled')
           : undefined
 
         const summaries = getWorkflowSummaries(
@@ -305,10 +329,7 @@ export const WorkflowTool: Tool = {
           }
         }
 
-        const parts: string[] = [
-          `Workflows (${summaries.length})`,
-          '',
-        ]
+        const parts: string[] = [`Workflows (${summaries.length})`, '']
 
         for (const s of summaries) {
           parts.push(
@@ -356,18 +377,28 @@ export const WorkflowTool: Tool = {
 
         for (const phase of workflow.phases) {
           const phaseSteps = workflow.steps.filter(s => s.phase === phase.order)
-          const phaseCompleted = phaseSteps.filter(s => s.status === 'completed').length
-          parts.push(`Phase ${phase.order}: ${phase.name} (${phaseCompleted}/${phaseSteps.length})`)
+          const phaseCompleted = phaseSteps.filter(
+            s => s.status === 'completed',
+          ).length
+          parts.push(
+            `Phase ${phase.order}: ${phase.name} (${phaseCompleted}/${phaseSteps.length})`,
+          )
 
           for (const step of phaseSteps) {
-            const icon = step.status === 'completed' ? '[✓]'
-              : step.status === 'in_progress' ? '[→]'
-              : step.status === 'failed' ? '[✗]'
-              : step.status === 'skipped' ? '[-]'
-              : '[ ]'
+            const icon =
+              step.status === 'completed'
+                ? '[✓]'
+                : step.status === 'in_progress'
+                  ? '[→]'
+                  : step.status === 'failed'
+                    ? '[✗]'
+                    : step.status === 'skipped'
+                      ? '[-]'
+                      : '[ ]'
             parts.push(`  ${icon} ${step.name} (${step.id.slice(0, 12)}...)`)
             if (step.assignee) parts.push(`    Assignee: ${step.assignee}`)
-            if (step.result) parts.push(`    Result: ${step.result.slice(0, 200)}`)
+            if (step.result)
+              parts.push(`    Result: ${step.result.slice(0, 200)}`)
           }
         }
 

@@ -4,7 +4,12 @@
 
 export type WorkflowStatus = 'active' | 'completed' | 'cancelled'
 
-export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped'
+export type StepStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
 
 export interface WorkflowPhase {
   name: string

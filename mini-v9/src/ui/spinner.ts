@@ -21,7 +21,9 @@ export function createSpinner(): Spinner {
         spinInterval = null
         return
       }
-      process.stderr.write('\r  ' + (spinChars[spinIdx] ?? '') + ' ' + currentMessage)
+      process.stderr.write(
+        '\r  ' + (spinChars[spinIdx] ?? '') + ' ' + currentMessage,
+      )
       spinIdx = (spinIdx + 1) % 4
     }, 120)
   }

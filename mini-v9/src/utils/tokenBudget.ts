@@ -33,10 +33,14 @@ export function parseTokenBudget(shorthand: string): number | null {
   const unit = match[2]
 
   switch (unit) {
-    case 'k': return value * 1000
-    case 'm': return value * 1000 * 1000
-    case 'b': return value * 1000 * 1000 * 1000
-    default: return value // raw number
+    case 'k':
+      return value * 1000
+    case 'm':
+      return value * 1000 * 1000
+    case 'b':
+      return value * 1000 * 1000 * 1000
+    default:
+      return value // raw number
   }
 }
 

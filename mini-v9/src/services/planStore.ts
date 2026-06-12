@@ -4,7 +4,14 @@
  * ~/.claude-code-mini/plans/{slug}.md
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+} from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -57,7 +64,9 @@ function serializeFrontmatter(meta: PlanMeta): string {
   ].join('\n')
 }
 
-function parseFrontmatter(raw: string): { meta: PlanMeta; content: string } | null {
+function parseFrontmatter(
+  raw: string,
+): { meta: PlanMeta; content: string } | null {
   const lines = raw.split('\n')
   if (lines.length < 2 || lines[0]?.trim() !== '---') return null
 
@@ -78,19 +87,34 @@ function parseFrontmatter(raw: string): { meta: PlanMeta; content: string } | nu
       const key = line.slice(0, colonIdx).trim()
       const value = line.slice(colonIdx + 1).trim()
       switch (key) {
-        case 'slug': meta.slug = value; break
-        case 'title': meta.title = value; break
-        case 'createdAt': meta.createdAt = value; break
-        case 'updatedAt': meta.updatedAt = value; break
-        case 'status': meta.status = value as PlanMeta['status']; break
-        case 'currentPhase': meta.currentPhase = Number(value); break
+        case 'slug':
+          meta.slug = value
+          break
+        case 'title':
+          meta.title = value
+          break
+        case 'createdAt':
+          meta.createdAt = value
+          break
+        case 'updatedAt':
+          meta.updatedAt = value
+          break
+        case 'status':
+          meta.status = value as PlanMeta['status']
+          break
+        case 'currentPhase':
+          meta.currentPhase = Number(value)
+          break
       }
     }
   }
 
   if (!meta.slug) return null
 
-  const content = lines.slice(endIdx + 1).join('\n').trim()
+  const content = lines
+    .slice(endIdx + 1)
+    .join('\n')
+    .trim()
 
   return {
     meta: {
@@ -110,21 +134,78 @@ function parseFrontmatter(raw: string): { meta: PlanMeta; content: string } | nu
 // ============================================================
 
 const ADJECTIVES = [
-  'brave', 'calm', 'eager', 'fierce', 'gentle', 'happy', 'keen', 'lively',
-  'noble', 'proud', 'quick', 'sharp', 'swift', 'vivid', 'warm', 'bright',
-  'clear', 'deep', 'fair', 'grand', 'kind', 'light', 'merry', 'neat',
-  'pure', 'rare', 'safe', 'tall', 'vast', 'wise', 'young', 'agile',
+  'brave',
+  'calm',
+  'eager',
+  'fierce',
+  'gentle',
+  'happy',
+  'keen',
+  'lively',
+  'noble',
+  'proud',
+  'quick',
+  'sharp',
+  'swift',
+  'vivid',
+  'warm',
+  'bright',
+  'clear',
+  'deep',
+  'fair',
+  'grand',
+  'kind',
+  'light',
+  'merry',
+  'neat',
+  'pure',
+  'rare',
+  'safe',
+  'tall',
+  'vast',
+  'wise',
+  'young',
+  'agile',
 ]
 
 const NOUNS = [
-  'action', 'bridge', 'craft', 'dream', 'eagle', 'flame', 'globe', 'heart',
-  'impact', 'jewel', 'knight', 'ledge', 'march', 'north', 'oasis', 'pilot',
-  'quest', 'ridge', 'scope', 'thrust', 'unify', 'value', 'wings', 'yield',
-  'arrow', 'bloom', 'coral', 'dawn', 'ember', 'frost', 'gleam', 'harbor',
+  'action',
+  'bridge',
+  'craft',
+  'dream',
+  'eagle',
+  'flame',
+  'globe',
+  'heart',
+  'impact',
+  'jewel',
+  'knight',
+  'ledge',
+  'march',
+  'north',
+  'oasis',
+  'pilot',
+  'quest',
+  'ridge',
+  'scope',
+  'thrust',
+  'unify',
+  'value',
+  'wings',
+  'yield',
+  'arrow',
+  'bloom',
+  'coral',
+  'dawn',
+  'ember',
+  'frost',
+  'gleam',
+  'harbor',
 ]
 
 function randomSlug(): string {
-  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)] ?? 'bright'
+  const adj =
+    ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)] ?? 'bright'
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)] ?? 'plan'
   return `${adj}-${noun}`
 }
@@ -150,11 +231,14 @@ export function generateSlug(): string {
  * If slug is provided, it must be unique (throws otherwise).
  * If slug is omitted, one is generated.
  */
-export function savePlan(content: string, options?: {
-  slug?: string
-  title?: string
-  phase?: number
-}): PlanFile {
+export function savePlan(
+  content: string,
+  options?: {
+    slug?: string
+    title?: string
+    phase?: number
+  },
+): PlanFile {
   ensurePlansDir()
 
   const slug = options?.slug ?? generateSlug()

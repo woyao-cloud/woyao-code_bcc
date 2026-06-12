@@ -85,7 +85,10 @@ export async function installPluginFromGitHub(
     // Verify the installation has a valid manifest
     const manifest = loadPluginManifestFromDir(targetDir)
     if (manifest) {
-      return { success: true, message: `Installed ${name} v${manifest.version}` }
+      return {
+        success: true,
+        message: `Installed ${name} v${manifest.version}`,
+      }
     }
 
     // If no manifest in root, look for plugin dir inside tarball
@@ -208,9 +211,7 @@ export function installPluginFromDir(
   // Validate manifest
   const validation = validatePluginManifest(manifest)
   if (!validation.valid) {
-    throw new Error(
-      `Invalid plugin manifest: ${validation.errors.join('; ')}`,
-    )
+    throw new Error(`Invalid plugin manifest: ${validation.errors.join('; ')}`)
   }
 
   const installDir = getInstallDir(scope, cwd)

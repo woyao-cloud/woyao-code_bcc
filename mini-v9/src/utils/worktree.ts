@@ -64,7 +64,11 @@ export async function listWorktrees(
   const root = await getGitRoot(cwd)
   if (!root) return []
 
-  const result = await execFileNoThrow('git', ['worktree', 'list', '--porcelain'], { cwd: root })
+  const result = await execFileNoThrow(
+    'git',
+    ['worktree', 'list', '--porcelain'],
+    { cwd: root },
+  )
   if (result.exitCode !== 0) return []
 
   const entries: Array<{ path: string; branch: string; detached: boolean }> = []

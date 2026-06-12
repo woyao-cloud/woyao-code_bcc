@@ -11,9 +11,7 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
-function extractTextFromContent(
-  content: string | unknown[],
-): string {
+function extractTextFromContent(content: string | unknown[]): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
@@ -22,7 +20,8 @@ function extractTextFromContent(
         if (block && typeof block === 'object') {
           const b = block as Record<string, unknown>
           if (b.type === 'text' && typeof b.text === 'string') return b.text
-          if (b.type === 'tool_result' && typeof b.content === 'string') return b.content
+          if (b.type === 'tool_result' && typeof b.content === 'string')
+            return b.content
         }
         return ''
       })
@@ -51,7 +50,8 @@ export const CtxInspectTool: Tool = {
       detail: {
         type: 'string',
         enum: ['summary', 'full'],
-        description: 'Detail level: "summary" for overview, "full" for per-message breakdown',
+        description:
+          'Detail level: "summary" for overview, "full" for per-message breakdown',
       },
       top: {
         type: 'number',
@@ -74,7 +74,8 @@ export const CtxInspectTool: Tool = {
   ): Promise<ToolResult> {
     const messages = ctx.messages
     const detail = String(input.detail ?? 'summary')
-    const topN = typeof input.top === 'number' ? Math.max(1, Math.min(20, input.top)) : 5
+    const topN =
+      typeof input.top === 'number' ? Math.max(1, Math.min(20, input.top)) : 5
 
     if (!messages || messages.length === 0) {
       return {
@@ -88,7 +89,8 @@ export const CtxInspectTool: Tool = {
       const m = msg as unknown as Record<string, unknown>
       const role = String((m.role as string | undefined) ?? m.type ?? 'unknown')
       // Messages may have content at msg.content or msg.message.content (nested structure)
-      const content = (m.message as Record<string, unknown> | undefined)?.content ?? m.content
+      const content =
+        (m.message as Record<string, unknown> | undefined)?.content ?? m.content
       const text = extractTextFromContent(content as string | unknown[])
       return {
         role,
@@ -98,7 +100,10 @@ export const CtxInspectTool: Tool = {
       }
     })
 
-    const totalTokens = messageInfos.reduce((sum, m) => sum + m.estimatedTokens, 0)
+    const totalTokens = messageInfos.reduce(
+      (sum, m) => sum + m.estimatedTokens,
+      0,
+    )
     const totalChars = messageInfos.reduce((sum, m) => sum + m.contentLength, 0)
 
     // Per-role breakdown
@@ -111,7 +116,9 @@ export const CtxInspectTool: Tool = {
     }
 
     // Find largest messages
-    const sortedBySize = [...messageInfos].sort((a, b) => b.estimatedTokens - a.estimatedTokens)
+    const sortedBySize = [...messageInfos].sort(
+      (a, b) => b.estimatedTokens - a.estimatedTokens,
+    )
     const largest = sortedBySize.slice(0, topN)
 
     // Context window estimate (200K default for Claude)
@@ -133,8 +140,11 @@ export const CtxInspectTool: Tool = {
     ]
 
     for (const [role, info] of byRole.entries()) {
-      const pct = totalTokens > 0 ? Math.round((info.tokens / totalTokens) * 100) : 0
-      parts.push(`  ${role}: ${info.count} messages, ~${info.tokens.toLocaleString()} tokens (${pct}%)`)
+      const pct =
+        totalTokens > 0 ? Math.round((info.tokens / totalTokens) * 100) : 0
+      parts.push(
+        `  ${role}: ${info.count} messages, ~${info.tokens.toLocaleString()} tokens (${pct}%)`,
+      )
     }
 
     if (detail === 'full') {

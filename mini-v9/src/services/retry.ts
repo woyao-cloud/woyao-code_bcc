@@ -51,8 +51,9 @@ export interface RetryCooldownEvent {
 export function classifyAPIError(err: unknown): ErrorCategory {
   if (!(err instanceof Error)) return 'unknown'
   const msg = err.message.toLowerCase()
-  const status =
-    (err as unknown as Record<string, unknown>).status as number | undefined
+  const status = (err as unknown as Record<string, unknown>).status as
+    | number
+    | undefined
 
   // Abort signal errors — never retry
   if (
@@ -125,8 +126,10 @@ export function classifyAPIError(err: unknown): ErrorCategory {
  * Supports both seconds (numeric) and HTTP-date format.
  */
 export function parseRetryAfterHeader(err: Error): number | null {
-  const headers = (err as unknown as Record<string, unknown>)
-    .headers as Record<string, string> | null
+  const headers = (err as unknown as Record<string, unknown>).headers as Record<
+    string,
+    string
+  > | null
   if (!headers) return null
 
   const retryAfter = headers['retry-after'] ?? headers['Retry-After']
@@ -226,7 +229,9 @@ export function isStaleConnectionError(err: Error): boolean {
  */
 export function isServerOverloadError(err: Error): boolean {
   const msg = err.message.toLowerCase()
-  const status = (err as unknown as Record<string, unknown>).status as number | undefined
+  const status = (err as unknown as Record<string, unknown>).status as
+    | number
+    | undefined
   return (
     status === 529 ||
     msg.includes('529') ||
@@ -240,10 +245,14 @@ export function isServerOverloadError(err: Error): boolean {
  */
 export function isOAuthRefreshableError(err: Error): boolean {
   const msg = err.message.toLowerCase()
-  const status = (err as unknown as Record<string, unknown>).status as number | undefined
+  const status = (err as unknown as Record<string, unknown>).status as
+    | number
+    | undefined
   return (
     (status === 401 || msg.includes('401')) &&
-    (msg.includes('oauth') || msg.includes('token') || msg.includes('unauthorized'))
+    (msg.includes('oauth') ||
+      msg.includes('token') ||
+      msg.includes('unauthorized'))
   )
 }
 
@@ -273,8 +282,9 @@ export async function* retryWithBackoff<T>(
 ): AsyncGenerator<RetryEvent | RetryCooldownEvent | T> {
   const baseMaxRetries = options.maxRetries ?? 3
   // Persistent mode: double retries for connection errors
-  const effectiveMaxRetries =
-    options.persistent ? baseMaxRetries * 2 : baseMaxRetries
+  const effectiveMaxRetries = options.persistent
+    ? baseMaxRetries * 2
+    : baseMaxRetries
 
   let consecutiveOverloads = 0
   const OVERLOAD_THRESHOLD = 2 // enter cooldown after 2 overload errors
@@ -389,8 +399,9 @@ export async function withRetry<T>(
   options: LegacyRetryOptions = {},
 ): Promise<T> {
   const baseMaxRetries = options.maxRetries ?? 3
-  const effectiveMaxRetries =
-    options.persistent ? baseMaxRetries * 2 : baseMaxRetries
+  const effectiveMaxRetries = options.persistent
+    ? baseMaxRetries * 2
+    : baseMaxRetries
   const baseDelay = options.baseDelayMs ?? 1000
   const maxDelay = options.maxDelayMs ?? 30000
 

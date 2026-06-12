@@ -79,7 +79,9 @@ export function resolveModel(override?: string): string {
     process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ??
     process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ??
     process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL
- process.stderr.write(`[Model Resolution] override=${override} env=${fromEnv}\n`)
+  process.stderr.write(
+    `[Model Resolution] override=${override} env=${fromEnv}\n`,
+  )
   if (fromEnv) {
     const resolved = resolveModelAlias(fromEnv)
     if (MODELS[resolved]) return resolved

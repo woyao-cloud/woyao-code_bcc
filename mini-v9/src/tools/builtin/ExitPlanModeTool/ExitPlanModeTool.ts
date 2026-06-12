@@ -31,7 +31,8 @@ export const ExitPlanModeTool: Tool = {
       implementation_steps: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Ordered list of implementation steps for execution tracking (V2 mode).',
+        description:
+          'Ordered list of implementation steps for execution tracking (V2 mode).',
       },
     },
     required: ['summary'],
@@ -75,7 +76,9 @@ export const ExitPlanModeTool: Tool = {
     const slug = getPlanSlug()
     const planContent = getPlanContent()
     const results = getPlanResults()
-    const implementationSteps = input.implementation_steps as string[] | undefined
+    const implementationSteps = input.implementation_steps as
+      | string[]
+      | undefined
 
     const lines: string[] = [
       '## Plan Complete — Ready for Approval',
@@ -91,7 +94,9 @@ export const ExitPlanModeTool: Tool = {
       if (v2Summary) {
         lines.push('### Execution Plan')
         lines.push(`- Status: ${v2Summary.status}`)
-        lines.push(`- Phase completed: ${v2Summary.phase} — ${v2Summary.phaseName}`)
+        lines.push(
+          `- Phase completed: ${v2Summary.phase} — ${v2Summary.phaseName}`,
+        )
         lines.push(`- Steps identified: ${v2Summary.stepCount}`)
         lines.push(`- Created: ${v2Summary.createdAt}`)
         lines.push(`- Last updated: ${v2Summary.updatedAt}`)
@@ -115,7 +120,8 @@ export const ExitPlanModeTool: Tool = {
       lines.push('### Plan Overview')
       lines.push(
         '```',
-        planContent.slice(0, 1200) + (planContent.length > 1200 ? '\n...(truncated)' : ''),
+        planContent.slice(0, 1200) +
+          (planContent.length > 1200 ? '\n...(truncated)' : ''),
         '```',
       )
     }

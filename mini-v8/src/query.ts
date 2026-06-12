@@ -369,11 +369,7 @@ export async function* query(
     // Persist large tool results to disk to reduce memory and session size
     const persistedResults = toolResults.map(tr => {
       const raw = tr as unknown as Record<string, unknown>
-      if (
-        raw.content &&
-        typeof raw.content === 'string' &&
-        !raw.is_error
-      ) {
+      if (raw.content && typeof raw.content === 'string' && !raw.is_error) {
         const persisted = persistLargeToolResult(raw.content)
         if (persisted !== raw.content) {
           return { ...tr, content: persisted } as typeof tr

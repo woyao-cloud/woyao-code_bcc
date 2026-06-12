@@ -27,7 +27,10 @@ export type ContentItem =
 /** Extended content block types for internal use (not API-compatible) */
 export type ExtendedContentItem =
   | ContentItem
-  | { type: 'image'; source: { type: string; media_type: string; data: string } }
+  | {
+      type: 'image'
+      source: { type: string; media_type: string; data: string }
+    }
   | { type: 'thinking'; thinking: string; signature?: string }
 
 export interface UserMessage {

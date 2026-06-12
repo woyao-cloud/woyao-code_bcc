@@ -65,10 +65,7 @@ describe('CtxInspectTool', () => {
       },
       cwd: '/test',
       abortSignal: new AbortController().signal,
-      messages: [
-        makeUserMsg('user', 'Hello', '1'),
-        makeAssistantMsg(),
-      ],
+      messages: [makeUserMsg('user', 'Hello', '1'), makeAssistantMsg()],
       isInteractive: false,
     }
     const result = await CtxInspectTool.execute(mockCtx, { detail: 'full' })
@@ -92,9 +89,7 @@ describe('CtxInspectTool', () => {
       },
       cwd: '/test',
       abortSignal: new AbortController().signal,
-      messages: [
-        makeUserMsg('user', 'Test', '1'),
-      ],
+      messages: [makeUserMsg('user', 'Test', '1')],
       isInteractive: false,
     }
     const result = await CtxInspectTool.execute(mockCtx, {})

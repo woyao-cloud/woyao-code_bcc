@@ -36,8 +36,10 @@ export async function handlePluginCommand(
   }
 
   // Enable / disable
-  if (args.startsWith('enable ')) return pluginEnable(args.slice('enable '.length).trim(), cwd)
-  if (args.startsWith('disable ')) return pluginDisable(args.slice('disable '.length).trim(), cwd)
+  if (args.startsWith('enable '))
+    return pluginEnable(args.slice('enable '.length).trim(), cwd)
+  if (args.startsWith('disable '))
+    return pluginDisable(args.slice('disable '.length).trim(), cwd)
 
   // Info
   if (args.startsWith('info ')) {
@@ -47,7 +49,9 @@ export async function handlePluginCommand(
 
   // Browse marketplace
   if (args === 'browse' || args.startsWith('browse ')) {
-    const query = args.startsWith('browse ') ? args.slice('browse '.length).trim() : ''
+    const query = args.startsWith('browse ')
+      ? args.slice('browse '.length).trim()
+      : ''
     return pluginBrowse(query)
   }
 
@@ -165,10 +169,14 @@ function pluginInfo(name: string, plugins: LoadedPlugin[]): string {
   if (m.license) lines.push(`  License: ${m.license}`)
   if (m.category) lines.push(`  Category: ${m.category}`)
   if (m.tags?.length) lines.push(`  Tags: ${m.tags.join(', ')}`)
-  if (m.dependencies) lines.push(`  Dependencies: ${Object.keys(m.dependencies).join(', ')}`)
-  if (m.commands?.length) lines.push(`  Commands: ${m.commands.map(c => c.name).join(', ')}`)
-  if (m.skills?.length) lines.push(`  Skills: ${m.skills.map(s => s.name).join(', ')}`)
-  if (m.mcpServers?.length) lines.push(`  MCP servers: ${m.mcpServers.map(s => s.name).join(', ')}`)
+  if (m.dependencies)
+    lines.push(`  Dependencies: ${Object.keys(m.dependencies).join(', ')}`)
+  if (m.commands?.length)
+    lines.push(`  Commands: ${m.commands.map(c => c.name).join(', ')}`)
+  if (m.skills?.length)
+    lines.push(`  Skills: ${m.skills.map(s => s.name).join(', ')}`)
+  if (m.mcpServers?.length)
+    lines.push(`  MCP servers: ${m.mcpServers.map(s => s.name).join(', ')}`)
   if (plugin.errors.length > 0) {
     lines.push('  Errors:')
     for (const e of plugin.errors) lines.push(`    - ${e.message}`)
@@ -180,11 +188,16 @@ function pluginInfo(name: string, plugins: LoadedPlugin[]): string {
 // Validate
 // ============================================================
 
-async function pluginValidate(name: string, plugins: LoadedPlugin[]): Promise<string> {
+async function pluginValidate(
+  name: string,
+  plugins: LoadedPlugin[],
+): Promise<string> {
   const plugin = plugins.find(p => p.manifest.name === name)
   if (!plugin) return `Plugin "${name}" not found.`
 
-  const { validatePluginSecurity } = await import('../plugins/pluginSecurity.js')
+  const { validatePluginSecurity } = await import(
+    '../plugins/pluginSecurity.js'
+  )
   const manifest = plugin.manifest
   const basicCheck = validatePluginManifest(manifest)
   const securityCheck = validatePluginSecurity(manifest)
@@ -229,10 +242,9 @@ async function pluginInstall(
     installPluginFromUrl,
     isPluginInstalledAt,
   } = await import('../plugins/pluginInstaller.js')
-  const {
-    fetchMarketplace,
-    loadKnownMarketplaces,
-  } = await import('../plugins/marketplaceManager.js')
+  const { fetchMarketplace, loadKnownMarketplaces } = await import(
+    '../plugins/marketplaceManager.js'
+  )
   const { checkInstallAllowed } = await import('../plugins/pluginSecurity.js')
 
   const { name, marketplace } = parsePluginSpec(spec)
@@ -242,18 +254,25 @@ async function pluginInstall(
     const allowed = checkInstallAllowed(name, 'user', 'github')
     if (!allowed.allowed) return `❌ ${allowed.reason}`
 
-    const result = await installPluginFromGitHub(name, name.split('/')[1], 'user', undefined, cwd)
-    return result.success
-      ? `✅ ${result.message}`
-      : `❌ ${result.message}`
+    const result = await installPluginFromGitHub(
+      name,
+      name.split('/')[1],
+      'user',
+      undefined,
+      cwd,
+    )
+    return result.success ? `✅ ${result.message}` : `❌ ${result.message}`
   }
 
   // URL install
   if (name.startsWith('http://') || name.startsWith('https://')) {
-    const result = await installPluginFromUrl(name, 'plugin-from-url', 'user', cwd)
-    return result.success
-      ? `✅ ${result.message}`
-      : `❌ ${result.message}`
+    const result = await installPluginFromUrl(
+      name,
+      'plugin-from-url',
+      'user',
+      cwd,
+    )
+    return result.success ? `✅ ${result.message}` : `❌ ${result.message}`
   }
 
   if (!marketplace) {
@@ -277,13 +296,17 @@ async function pluginInstall(
   if (!pluginMarketplace) return `Failed to fetch marketplace "${marketplace}".`
 
   const entry = pluginMarketplace.plugins.find(p => p.name === name)
-  if (!entry) return `Plugin "${name}" not found in marketplace "${marketplace}".`
+  if (!entry)
+    return `Plugin "${name}" not found in marketplace "${marketplace}".`
 
-  if (isPluginInstalledAt(name, 'user', cwd)) return `Plugin "${name}" is already installed.`
+  if (isPluginInstalledAt(name, 'user', cwd))
+    return `Plugin "${name}" is already installed.`
 
   // Check dependencies
   const { resolveDependencies } = await import('../plugins/pluginInstaller.js')
-  const installed = (await import('../plugins/pluginLoader.js')).loadAllPlugins(cwd)
+  const installed = (await import('../plugins/pluginLoader.js')).loadAllPlugins(
+    cwd,
+  )
   const depCheck = resolveDependencies(
     entry.dependencies,
     installed.map(p => p.manifest.name),
@@ -311,7 +334,9 @@ async function pluginInstall(
     dependencies: entry.dependencies,
   }
 
-  const { validatePluginSecurity } = await import('../plugins/pluginSecurity.js')
+  const { validatePluginSecurity } = await import(
+    '../plugins/pluginSecurity.js'
+  )
   const secCheck = validatePluginSecurity(manifest)
   if (!secCheck.valid) {
     return [
@@ -400,8 +425,12 @@ async function pluginBrowse(query?: string): Promise<string> {
         lines.push(query ? `  No plugins matching "${query}"` : '  (empty)')
       } else {
         for (const p of plugins) {
-          const tags = p.tags?.length ? ` [${p.tags.slice(0, 3).join(', ')}]` : ''
-          lines.push(`  • ${p.name} v${p.version} — ${p.description.slice(0, 60)}${tags}`)
+          const tags = p.tags?.length
+            ? ` [${p.tags.slice(0, 3).join(', ')}]`
+            : ''
+          lines.push(
+            `  • ${p.name} v${p.version} — ${p.description.slice(0, 60)}${tags}`,
+          )
         }
       }
     } catch {
@@ -416,7 +445,10 @@ async function pluginBrowse(query?: string): Promise<string> {
 // Check updates
 // ============================================================
 
-async function pluginCheckUpdates(cwd: string, plugins: LoadedPlugin[]): Promise<string> {
+async function pluginCheckUpdates(
+  cwd: string,
+  plugins: LoadedPlugin[],
+): Promise<string> {
   const { checkPluginUpdates } = await import('../plugins/pluginLifecycle.js')
   const updates = await checkPluginUpdates(plugins)
 
@@ -462,14 +494,24 @@ async function marketplaceCommand(args: string): Promise<string> {
 
     if (input.startsWith('github:')) {
       const repo = input.slice('github:'.length)
-      addMarketplace({ source: 'url', repo, name: repo.split('/')[1] ?? repo, autoUpdate: true })
+      addMarketplace({
+        source: 'url',
+        repo,
+        name: repo.split('/')[1] ?? repo,
+        autoUpdate: true,
+      })
       return `✅ GitHub marketplace added: ${repo}`
     }
 
     if (input.includes('github.com')) {
       const match = input.match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?$/)
       if (match) {
-        addMarketplace({ source: 'url', repo: match[1], name: match[1].split('/')[1], autoUpdate: true })
+        addMarketplace({
+          source: 'url',
+          repo: match[1],
+          name: match[1].split('/')[1],
+          autoUpdate: true,
+        })
         return `✅ GitHub marketplace added: ${match[1]}`
       }
     }
@@ -487,16 +529,22 @@ async function marketplaceCommand(args: string): Promise<string> {
   }
 
   if (args === 'refresh' || args.startsWith('refresh ')) {
-    const name = args.startsWith('refresh ') ? args.slice('refresh '.length).trim() : undefined
+    const name = args.startsWith('refresh ')
+      ? args.slice('refresh '.length).trim()
+      : undefined
     if (name) {
       invalidateMarketplaceCache(name)
       const data = await fetchMarketplace(name, name, true)
-      return data ? `✅ Marketplace "${name}" refreshed.` : `Failed to refresh "${name}".`
+      return data
+        ? `✅ Marketplace "${name}" refreshed.`
+        : `Failed to refresh "${name}".`
     }
     const marketplaces = loadKnownMarketplaces()
     for (const n of Object.keys(marketplaces)) invalidateMarketplaceCache(n)
     await Promise.all(
-      Object.entries(marketplaces).map(([n, c]) => fetchMarketplace(c, n, true)),
+      Object.entries(marketplaces).map(([n, c]) =>
+        fetchMarketplace(c, n, true),
+      ),
     )
     return '✅ All marketplaces refreshed.'
   }
@@ -509,11 +557,9 @@ async function marketplaceCommand(args: string): Promise<string> {
 // ============================================================
 
 async function blocklistCommand(args: string): Promise<string> {
-  const {
-    loadBlocklist,
-    addToBlocklist,
-    removeFromBlocklist,
-  } = await import('../plugins/pluginSecurity.js')
+  const { loadBlocklist, addToBlocklist, removeFromBlocklist } = await import(
+    '../plugins/pluginSecurity.js'
+  )
 
   if (!args || args === 'list') {
     const blocklist = loadBlocklist()
@@ -551,7 +597,9 @@ async function blocklistCommand(args: string): Promise<string> {
 // ============================================================
 
 async function policyCommand(args: string): Promise<string> {
-  const { loadPolicy, savePolicy, DEFAULT_POLICY } = await import('../plugins/pluginSecurity.js')
+  const { loadPolicy, savePolicy, DEFAULT_POLICY } = await import(
+    '../plugins/pluginSecurity.js'
+  )
 
   if (!args || args === 'show') {
     const p = loadPolicy()

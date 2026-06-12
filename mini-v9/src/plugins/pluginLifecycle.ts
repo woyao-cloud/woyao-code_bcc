@@ -8,7 +8,10 @@ import { homedir } from 'os'
 import type { LoadedPlugin } from './types.js'
 import { loadAllPlugins, loadPluginManifest } from './pluginLoader.js'
 import { compareVersions } from './pluginInstaller.js'
-import { loadKnownMarketplaces, fetchMarketplace } from './marketplaceManager.js'
+import {
+  loadKnownMarketplaces,
+  fetchMarketplace,
+} from './marketplaceManager.js'
 import { isMarketplaceAutoUpdate } from './schemas.js'
 
 // ============================================================
@@ -52,7 +55,11 @@ function loadVersionStates(): PluginVersionMap {
 
 function saveVersionStates(states: PluginVersionMap): void {
   try {
-    writeFileSync(getUpdateStateFile(), JSON.stringify(states, null, 2), 'utf-8')
+    writeFileSync(
+      getUpdateStateFile(),
+      JSON.stringify(states, null, 2),
+      'utf-8',
+    )
   } catch {}
 }
 
@@ -84,7 +91,8 @@ export async function checkPluginUpdates(
     if (!marketplaceConfig) continue
 
     // Check if auto-update is enabled for this marketplace
-    if (!isMarketplaceAutoUpdate(plugin.marketplace, marketplaceConfig)) continue
+    if (!isMarketplaceAutoUpdate(plugin.marketplace, marketplaceConfig))
+      continue
 
     const state = versionStates[plugin.pluginId] ?? {
       installedVersion: plugin.manifest.version,
@@ -92,7 +100,10 @@ export async function checkPluginUpdates(
     }
 
     try {
-      const marketplace = await fetchMarketplace(marketplaceConfig, plugin.marketplace)
+      const marketplace = await fetchMarketplace(
+        marketplaceConfig,
+        plugin.marketplace,
+      )
       if (!marketplace) continue
 
       const marketplaceEntry = marketplace.plugins.find(
@@ -218,9 +229,6 @@ export async function scheduledUpdateCheck(cwd: string): Promise<string> {
   if (available.length === 0) return 'All plugins are up to date'
 
   return available
-    .map(
-      u =>
-        `${u.pluginId}: ${u.currentVersion} → ${u.latestVersion}`,
-    )
+    .map(u => `${u.pluginId}: ${u.currentVersion} → ${u.latestVersion}`)
     .join('\n')
 }

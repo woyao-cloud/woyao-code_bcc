@@ -8,7 +8,14 @@
  * 2. AgentTaskStore — transient in-memory tracking of async agent lifecycle.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+} from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
@@ -35,8 +42,8 @@ export interface Task {
   status: TaskStatus
   result?: string
   owner?: string
-  blocks: string[]       // task IDs that this task blocks
-  blockedBy: string[]    // task IDs that block this task
+  blocks: string[] // task IDs that this task blocks
+  blockedBy: string[] // task IDs that block this task
   createdAt: string
   updatedAt: string
   metadata?: Record<string, unknown>
@@ -86,7 +93,10 @@ function loadAllTasksFromDisk(): Map<string, Task> {
     const files = readdirSync(TASKS_DIR).filter(f => f.endsWith('.json'))
     for (const file of files) {
       try {
-        const raw = readFileSync(taskFilePath(file.replace(/\.json$/, '')), 'utf-8')
+        const raw = readFileSync(
+          taskFilePath(file.replace(/\.json$/, '')),
+          'utf-8',
+        )
         const task = JSON.parse(raw) as Task
         tasks.set(task.id, task)
       } catch {
@@ -157,7 +167,12 @@ export function createTask(
 
 export function updateTask(
   id: string,
-  updates: Partial<Pick<Task, 'status' | 'result' | 'owner' | 'blocks' | 'blockedBy' | 'metadata'>>,
+  updates: Partial<
+    Pick<
+      Task,
+      'status' | 'result' | 'owner' | 'blocks' | 'blockedBy' | 'metadata'
+    >
+  >,
 ): Task | undefined {
   const task = tasks.get(id)
   if (!task) return undefined

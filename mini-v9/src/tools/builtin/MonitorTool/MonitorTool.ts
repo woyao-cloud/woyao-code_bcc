@@ -46,7 +46,8 @@ export const MonitorTool: Tool = {
       },
       description: {
         type: 'string',
-        description: 'Human-readable description of what is being monitored (required for start)',
+        description:
+          'Human-readable description of what is being monitored (required for start)',
       },
       pattern: {
         type: 'string',
@@ -54,11 +55,13 @@ export const MonitorTool: Tool = {
       },
       timeout: {
         type: 'number',
-        description: 'Auto-stop after this many seconds (default: 300, 0 = no timeout)',
+        description:
+          'Auto-stop after this many seconds (default: 300, 0 = no timeout)',
       },
       persistent: {
         type: 'boolean',
-        description: 'Run until manually stopped (ignores timeout, use with caution). Default: false',
+        description:
+          'Run until manually stopped (ignores timeout, use with caution). Default: false',
       },
     },
     required: ['action'],
@@ -101,7 +104,11 @@ export const MonitorTool: Tool = {
 
         const pattern = input.pattern ? String(input.pattern).trim() : undefined
         const persistent = input.persistent === true
-        const timeoutSecs = persistent ? 0 : (typeof input.timeout === 'number' ? input.timeout : 300)
+        const timeoutSecs = persistent
+          ? 0
+          : typeof input.timeout === 'number'
+            ? input.timeout
+            : 300
         const id = `monitor_${++monitorCounter}_${Date.now()}`
 
         activeMonitors.set(id, {
@@ -178,10 +185,7 @@ export const MonitorTool: Tool = {
           }
         }
 
-        const parts: string[] = [
-          `Active monitors (${activeMonitors.size})`,
-          '',
-        ]
+        const parts: string[] = [`Active monitors (${activeMonitors.size})`, '']
         for (const monitor of activeMonitors.values()) {
           const runningFor = Math.round((Date.now() - monitor.startedAt) / 1000)
           parts.push(

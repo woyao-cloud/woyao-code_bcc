@@ -177,9 +177,7 @@ export function invalidateMarketplaceCache(name: string): void {
 /**
  * Get the fetch URL for a marketplace based on its config.
  */
-export function getMarketplaceFetchUrl(
-  entry: KnownMarketplace,
-): string | null {
+export function getMarketplaceFetchUrl(entry: KnownMarketplace): string | null {
   if (entry.url) return entry.url
 
   // GitHub source

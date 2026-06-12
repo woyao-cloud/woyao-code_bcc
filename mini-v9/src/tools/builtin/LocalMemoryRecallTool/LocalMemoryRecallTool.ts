@@ -10,7 +10,11 @@ import { readdirSync, readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
-const SESSION_MEMORY_DIR = join(homedir(), '.claude-code-mini', 'session-memory')
+const SESSION_MEMORY_DIR = join(
+  homedir(),
+  '.claude-code-mini',
+  'session-memory',
+)
 
 export const LocalMemoryRecallTool: Tool = {
   name: 'LocalMemoryRecall',
@@ -74,8 +78,16 @@ export const LocalMemoryRecallTool: Tool = {
           }
         }
 
-        const maxResults = Math.min(20, Math.max(1, typeof input.max_results === 'number' ? input.max_results : 5))
-        const scope = input.scope ? String(input.scope).trim() as 'user' | 'project' | 'local' : undefined
+        const maxResults = Math.min(
+          20,
+          Math.max(
+            1,
+            typeof input.max_results === 'number' ? input.max_results : 5,
+          ),
+        )
+        const scope = input.scope
+          ? (String(input.scope).trim() as 'user' | 'project' | 'local')
+          : undefined
 
         const results = findRelevantMemories(query, {
           maxResults,
@@ -96,7 +108,9 @@ export const LocalMemoryRecallTool: Tool = {
           '',
         ]
         for (const r of results) {
-          parts.push(`### ${r.agentType} (${r.scope}) — relevance: ${r.relevance.toFixed(2)}`)
+          parts.push(
+            `### ${r.agentType} (${r.scope}) — relevance: ${r.relevance.toFixed(2)}`,
+          )
           parts.push(r.content.slice(0, 300))
           parts.push('')
         }
@@ -128,15 +142,10 @@ export const LocalMemoryRecallTool: Tool = {
           }
         }
 
-        const parts: string[] = [
-          `Recent sessions (${files.length} shown)`,
-          '',
-        ]
+        const parts: string[] = [`Recent sessions (${files.length} shown)`, '']
         for (const file of files) {
           const sessionId = file.replace(/\.md$/, '')
-          const stats = existsSync(join(SESSION_MEMORY_DIR, file))
-            ? file
-            : ''
+          const stats = existsSync(join(SESSION_MEMORY_DIR, file)) ? file : ''
           parts.push(`  ${sessionId}`)
         }
 
@@ -167,16 +176,13 @@ export const LocalMemoryRecallTool: Tool = {
 
         const raw = readFileSync(filePath, 'utf-8')
         const maxChars = 3000
-        const truncated = raw.length > maxChars
-          ? raw.slice(0, maxChars) + '\n...(truncated)'
-          : raw
+        const truncated =
+          raw.length > maxChars
+            ? raw.slice(0, maxChars) + '\n...(truncated)'
+            : raw
 
         return {
-          content: [
-            `Session: ${sessionId}`,
-            '',
-            truncated,
-          ].join('\n'),
+          content: [`Session: ${sessionId}`, '', truncated].join('\n'),
           success: true,
         }
       }

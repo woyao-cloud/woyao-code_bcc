@@ -51,7 +51,11 @@ export class QueryEngine {
     // Accept external AbortSignal by linking to internal AbortController
     if (options.abortSignal) {
       this.abortController = new AbortController()
-      options.abortSignal.addEventListener('abort', () => this.abortController.abort(), { once: true })
+      options.abortSignal.addEventListener(
+        'abort',
+        () => this.abortController.abort(),
+        { once: true },
+      )
     } else {
       this.abortController = new AbortController()
     }
@@ -100,14 +104,16 @@ export class QueryEngine {
 
   /** Get a formatted summary of the engine state */
   getSummary(): QueryEngineSummary {
-    const cacheTotal = this.totalCacheCreationInputTokens + this.totalCacheReadInputTokens
+    const cacheTotal =
+      this.totalCacheCreationInputTokens + this.totalCacheReadInputTokens
     return {
       turnCount: this.turnCount,
       totalInputTokens: this.totalInputTokens,
       totalOutputTokens: this.totalOutputTokens,
-      cacheHitRate: cacheTotal > 0
-        ? this.totalCacheReadInputTokens / cacheTotal
-        : undefined,
+      cacheHitRate:
+        cacheTotal > 0
+          ? this.totalCacheReadInputTokens / cacheTotal
+          : undefined,
     }
   }
 

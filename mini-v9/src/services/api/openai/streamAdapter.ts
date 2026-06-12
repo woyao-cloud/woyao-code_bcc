@@ -56,12 +56,16 @@ export async function* openAIToAnthropicStream(
     chunkCount++
     const choice = chunk.choices?.[0]
     if (!choice) {
-      logDebug(`OpenAI chunk ${chunkCount}: no choices, chunk=${JSON.stringify(chunk).substring(0, 200)}`)
+      logDebug(
+        `OpenAI chunk ${chunkCount}: no choices, chunk=${JSON.stringify(chunk).substring(0, 200)}`,
+      )
       continue
     }
 
     const delta = choice.delta
-    logDebug(`OpenAI chunk ${chunkCount}: delta=${JSON.stringify(delta).substring(0, 300)}`)
+    logDebug(
+      `OpenAI chunk ${chunkCount}: delta=${JSON.stringify(delta).substring(0, 300)}`,
+    )
 
     // Handle text content
     if (delta.content !== undefined && delta.content !== null) {
@@ -93,9 +97,13 @@ export async function* openAIToAnthropicStream(
 
     // Handle tool calls
     if (delta.tool_calls) {
-      logDebug(`OpenAI chunk ${chunkCount}: found ${delta.tool_calls.length} tool_call(s)`)
+      logDebug(
+        `OpenAI chunk ${chunkCount}: found ${delta.tool_calls.length} tool_call(s)`,
+      )
       for (const tc of delta.tool_calls) {
-        logDebug(`  tool_call[${tc.index}]: id=${tc.id}, name=${tc.function?.name}, args=${tc.function?.arguments?.substring(0, 100)}`)
+        logDebug(
+          `  tool_call[${tc.index}]: id=${tc.id}, name=${tc.function?.name}, args=${tc.function?.arguments?.substring(0, 100)}`,
+        )
         const state = toolCallStates.get(tc.index)
 
         if (!state) {

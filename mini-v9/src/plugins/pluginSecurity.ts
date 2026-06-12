@@ -56,7 +56,11 @@ export function loadBlocklist(): PluginBlocklist {
 
 export function saveBlocklist(blocklist: PluginBlocklist): void {
   try {
-    writeFileSync(getBlocklistFile(), JSON.stringify(blocklist, null, 2), 'utf-8')
+    writeFileSync(
+      getBlocklistFile(),
+      JSON.stringify(blocklist, null, 2),
+      'utf-8',
+    )
   } catch {}
 }
 
@@ -167,13 +171,19 @@ export function checkInstallAllowed(
   // 1. Check blocklist
   const blocked = isBlocked(name)
   if (blocked) {
-    return { allowed: false, reason: `Plugin "${name}" is blocked: ${blocked.reason}` }
+    return {
+      allowed: false,
+      reason: `Plugin "${name}" is blocked: ${blocked.reason}`,
+    }
   }
 
   // 2. Check policy allowlist
   const policy = loadPolicy()
   if (policy.allowlist && !policy.allowlist.includes(name)) {
-    return { allowed: false, reason: `Plugin "${name}" is not in the allowlist` }
+    return {
+      allowed: false,
+      reason: `Plugin "${name}" is not in the allowlist`,
+    }
   }
 
   // 3. Check scope restrictions
@@ -185,7 +195,10 @@ export function checkInstallAllowed(
   if (policy.allowedSources && source) {
     const allowed = policy.allowedSources.some(s => source.includes(s))
     if (!allowed) {
-      return { allowed: false, reason: `Plugin source "${source}" is not allowed` }
+      return {
+        allowed: false,
+        reason: `Plugin source "${source}" is not allowed`,
+      }
     }
   }
 
@@ -226,7 +239,11 @@ export function validatePluginSecurity(
   // 2. Check for suspicious entry points
   if (manifest.commands) {
     for (const cmd of manifest.commands) {
-      if (cmd.entry?.includes('..') || cmd.entry?.startsWith('/') || cmd.entry?.startsWith('\\')) {
+      if (
+        cmd.entry?.includes('..') ||
+        cmd.entry?.startsWith('/') ||
+        cmd.entry?.startsWith('\\')
+      ) {
         errors.push(
           `Command "${cmd.name}" has a suspicious entry point: ${cmd.entry}`,
         )

@@ -5,12 +5,7 @@
 
 import { relative, sep, dirname } from 'path'
 import { execFileNoThrow } from './execFileNoThrow.js'
-import {
-  findGitRoot,
-  getDefaultBranch,
-  getIsGit,
-  getStatus,
-} from './git.js'
+import { findGitRoot, getDefaultBranch, getIsGit, getStatus } from './git.js'
 
 // ============================================================
 // Types
@@ -75,11 +70,12 @@ export async function fetchGitDiff(cwd: string): Promise<GitDiffResult | null> {
   if (!isGit) return null
 
   // Quick probe via --shortstat
-  const { stdout: shortstatOut, exitCode: shortstatCode } = await execFileNoThrow(
-    'git',
-    ['--no-optional-locks', 'diff', 'HEAD', '--shortstat'],
-    { cwd, timeout: GIT_TIMEOUT_MS },
-  )
+  const { stdout: shortstatOut, exitCode: shortstatCode } =
+    await execFileNoThrow(
+      'git',
+      ['--no-optional-locks', 'diff', 'HEAD', '--shortstat'],
+      { cwd, timeout: GIT_TIMEOUT_MS },
+    )
   if (shortstatCode === 0) {
     const quickStats = parseShortstat(shortstatOut)
     if (quickStats && quickStats.filesCount > MAX_FILES_FOR_DETAILS) {
@@ -100,11 +96,12 @@ export async function fetchGitDiff(cwd: string): Promise<GitDiffResult | null> {
   // Include untracked files
   const remainingSlots = MAX_FILES - perFileStats.size
   if (remainingSlots > 0) {
-    const { stdout: untrackedOut, exitCode: untrackedCode } = await execFileNoThrow(
-      'git',
-      ['ls-files', '--others', '--exclude-standard'],
-      { cwd, timeout: GIT_TIMEOUT_MS },
-    )
+    const { stdout: untrackedOut, exitCode: untrackedCode } =
+      await execFileNoThrow(
+        'git',
+        ['ls-files', '--others', '--exclude-standard'],
+        { cwd, timeout: GIT_TIMEOUT_MS },
+      )
     if (untrackedCode === 0 && untrackedOut.trim()) {
       const untrackedFiles = untrackedOut.trim().split('\n').filter(Boolean)
       for (const filePath of untrackedFiles.slice(0, remainingSlots)) {
@@ -211,12 +208,20 @@ export function parseGitNumstat(stdout: string): NumstatResult {
     removed += fileRemoved
 
     if (perFileStats.size < MAX_FILES) {
-      perFileStats.set(filePath, { added: fileAdded, removed: fileRemoved, isBinary })
+      perFileStats.set(filePath, {
+        added: fileAdded,
+        removed: fileRemoved,
+        isBinary,
+      })
     }
   }
 
   return {
-    stats: { filesCount: validFileCount, linesAdded: added, linesRemoved: removed },
+    stats: {
+      filesCount: validFileCount,
+      linesAdded: added,
+      linesRemoved: removed,
+    },
     perFileStats,
   }
 }
@@ -246,7 +251,9 @@ export function parseGitDiff(stdout: string): Map<string, StructuredHunk[]> {
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i] ?? ''
-      const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
+      const hunkMatch = line.match(
+        /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/,
+      )
       if (hunkMatch) {
         if (currentHunk) fileHunks.push(currentHunk)
         currentHunk = {
@@ -272,7 +279,10 @@ export function parseGitDiff(stdout: string): Map<string, StructuredHunk[]> {
 
       if (
         currentHunk &&
-        (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ') || line === '')
+        (line.startsWith('+') ||
+          line.startsWith('-') ||
+          line.startsWith(' ') ||
+          line === '')
       ) {
         if (lineCount >= MAX_LINES_PER_FILE) continue
         currentHunk.lines.push('' + line)

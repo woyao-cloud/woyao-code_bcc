@@ -2,19 +2,42 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 
 // Mock session memory module before importing the module under test
-const mockReadSessionMemory = mock<(sessionId: string) => Array<{ id: string; category: string; content: string; timestamp: string }>>()
-const mockGetSessionMemoryForPrompt = mock<(sessionId: string, options?: { maxNotesPerCategory?: number; maxChars?: number }) => string>()
+const mockReadSessionMemory =
+  mock<
+    (sessionId: string) => Array<{
+      id: string
+      category: string
+      content: string
+      timestamp: string
+    }>
+  >()
+const mockGetSessionMemoryForPrompt =
+  mock<
+    (
+      sessionId: string,
+      options?: { maxNotesPerCategory?: number; maxChars?: number },
+    ) => string
+  >()
 const mockIsSessionMemoryEmpty = mock<(content: string) => boolean>()
-const mockTruncateSessionMemoryForCompact = mock<(content: string, maxTokens?: number) => { wasTruncated: boolean; truncatedContent: string }>()
+const mockTruncateSessionMemoryForCompact =
+  mock<
+    (
+      content: string,
+      maxTokens?: number,
+    ) => { wasTruncated: boolean; truncatedContent: string }
+  >()
 const mockGetSessionId = mock<() => string | null>()
 const mockGetLastSummarizedMessageId = mock<() => string | undefined>()
-const mockGetSessionMemoryConfig = mock<() => {
-  enabled: boolean
-  minTokensForInit: number
-  minTokensBetweenUpdate: number
-  maxNotes: number
-  sessionMemoryCompactEnabled: boolean
-}>()
+const mockGetSessionMemoryConfig =
+  mock<
+    () => {
+      enabled: boolean
+      minTokensForInit: number
+      minTokensBetweenUpdate: number
+      maxNotes: number
+      sessionMemoryCompactEnabled: boolean
+    }
+  >()
 
 mock.module('../memory/sessionMemory.js', () => ({
   getSessionId: mockGetSessionId,
@@ -36,26 +59,46 @@ import {
   trySessionMemoryCompaction,
 } from '../sessionMemoryCompact.js'
 
-function makeTextMsg(role: 'user' | 'assistant', text: string): BetaMessageParam {
+function makeTextMsg(
+  role: 'user' | 'assistant',
+  text: string,
+): BetaMessageParam {
   return { role, content: text }
 }
 
 function makeToolUseMsg(toolUseId: string, name = 'Bash'): BetaMessageParam {
   return {
     role: 'assistant',
-    content: [{ type: 'tool_use', id: toolUseId, name, input: {} } as unknown as Record<string, unknown>],
+    content: [
+      { type: 'tool_use', id: toolUseId, name, input: {} } as unknown as Record<
+        string,
+        unknown
+      >,
+    ],
   } as BetaMessageParam
 }
 
-function makeToolResultMsg(toolUseId: string, content = 'result data'): BetaMessageParam {
+function makeToolResultMsg(
+  toolUseId: string,
+  content = 'result data',
+): BetaMessageParam {
   return {
     role: 'user',
-    content: [{ type: 'tool_result', tool_use_id: toolUseId, content } as unknown as Record<string, unknown>],
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: toolUseId,
+        content,
+      } as unknown as Record<string, unknown>,
+    ],
   } as BetaMessageParam
 }
 
 // Helper to build multi-block content messages
-function makeContentBlockMsg(role: 'user' | 'assistant', blocks: Array<Record<string, unknown>>): BetaMessageParam {
+function makeContentBlockMsg(
+  role: 'user' | 'assistant',
+  blocks: Array<Record<string, unknown>>,
+): BetaMessageParam {
   return { role, content: blocks } as BetaMessageParam
 }
 
@@ -88,7 +131,10 @@ describe('setSessionMemoryCompactConfig', () => {
 })
 
 describe('adjustIndexToPreserveAPIInvariants', () => {
-  const systemMsg = { role: 'system', content: 'You are a helpful assistant.' } as BetaMessageParam
+  const systemMsg = {
+    role: 'system',
+    content: 'You are a helpful assistant.',
+  } as BetaMessageParam
 
   test('returns same index when no tool pairs need fixing', () => {
     const messages = [
@@ -140,9 +186,16 @@ describe('adjustIndexToPreserveAPIInvariants', () => {
 })
 
 describe('calculateMessagesToKeepIndex', () => {
-  const systemMsg = { role: 'system', content: 'You are a helpful assistant.' } as BetaMessageParam
+  const systemMsg = {
+    role: 'system',
+    content: 'You are a helpful assistant.',
+  } as BetaMessageParam
 
-  function makeLongerText(role: 'user' | 'assistant', prefix: string, length: number): BetaMessageParam {
+  function makeLongerText(
+    role: 'user' | 'assistant',
+    prefix: string,
+    length: number,
+  ): BetaMessageParam {
     return { role, content: prefix + 'x'.repeat(length) }
   }
 
@@ -154,7 +207,11 @@ describe('calculateMessagesToKeepIndex', () => {
   })
 
   test('backtracks to index 1 when lastSummarizedIndex is at last message', () => {
-    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const messages = [
+      systemMsg,
+      makeTextMsg('user', 'hello'),
+      makeTextMsg('assistant', 'hi'),
+    ]
     // Both messages are below minimums, backtracks to include everything
     resetSessionMemoryCompactConfig()
     setSessionMemoryCompactConfig({ minTokens: 100, minTextBlockMessages: 1 })
@@ -244,7 +301,10 @@ describe('trySessionMemoryCompaction', () => {
     })
   })
 
-  const systemMsg = { role: 'system', content: 'You are a helpful assistant.' } as BetaMessageParam
+  const systemMsg = {
+    role: 'system',
+    content: 'You are a helpful assistant.',
+  } as BetaMessageParam
 
   test('returns null when SM compaction disabled via config', () => {
     mockGetSessionMemoryConfig.mockReturnValue({
@@ -254,14 +314,22 @@ describe('trySessionMemoryCompaction', () => {
       maxNotes: 30,
       sessionMemoryCompactEnabled: false,
     })
-    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const messages = [
+      systemMsg,
+      makeTextMsg('user', 'hello'),
+      makeTextMsg('assistant', 'hi'),
+    ]
     const result = trySessionMemoryCompaction(messages)
     expect(result).toBeNull()
   })
 
   test('returns null when no session ID', () => {
     mockGetSessionId.mockReturnValue(null)
-    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const messages = [
+      systemMsg,
+      makeTextMsg('user', 'hello'),
+      makeTextMsg('assistant', 'hi'),
+    ]
     const result = trySessionMemoryCompaction(messages)
     expect(result).toBeNull()
   })
@@ -269,25 +337,49 @@ describe('trySessionMemoryCompaction', () => {
   test('returns null when session memory is empty', () => {
     mockGetSessionId.mockReturnValue('session-123')
     mockReadSessionMemory.mockReturnValue([])
-    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const messages = [
+      systemMsg,
+      makeTextMsg('user', 'hello'),
+      makeTextMsg('assistant', 'hi'),
+    ]
     const result = trySessionMemoryCompaction(messages)
     expect(result).toBeNull()
   })
 
   test('returns null when session memory content is empty after trimming', () => {
     mockGetSessionId.mockReturnValue('session-123')
-    mockReadSessionMemory.mockReturnValue([{ id: 'n1', category: 'decision', content: 'some note', timestamp: new Date().toISOString() }])
+    mockReadSessionMemory.mockReturnValue([
+      {
+        id: 'n1',
+        category: 'decision',
+        content: 'some note',
+        timestamp: new Date().toISOString(),
+      },
+    ])
     mockGetSessionMemoryForPrompt.mockReturnValue('   \n\n  ')
     mockIsSessionMemoryEmpty.mockReturnValue(true)
-    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const messages = [
+      systemMsg,
+      makeTextMsg('user', 'hello'),
+      makeTextMsg('assistant', 'hi'),
+    ]
     const result = trySessionMemoryCompaction(messages)
     expect(result).toBeNull()
   })
 
   test('returns null when startIndex <= 1 (nothing to compact)', () => {
     mockGetSessionId.mockReturnValue('session-123')
-    mockReadSessionMemory.mockReturnValue([{ id: 'n1', category: 'decision', content: 'some note', timestamp: new Date().toISOString() }])
-    mockGetSessionMemoryForPrompt.mockReturnValue('## Session Memory\nsome note')
+    mockReadSessionMemory.mockReturnValue([
+      {
+        id: 'n1',
+        category: 'decision',
+        content: 'some note',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+    mockGetSessionMemoryForPrompt.mockReturnValue(
+      '## Session Memory\nsome note',
+    )
     mockIsSessionMemoryEmpty.mockReturnValue(false)
     mockGetLastSummarizedMessageId.mockReturnValue(undefined)
     const messages = [systemMsg]
@@ -297,10 +389,22 @@ describe('trySessionMemoryCompaction', () => {
 
   test('successfully compacts with session memory', () => {
     mockGetSessionId.mockReturnValue('session-123')
-    mockReadSessionMemory.mockReturnValue([{ id: 'n1', category: 'decision', content: 'some note', timestamp: new Date().toISOString() }])
-    mockGetSessionMemoryForPrompt.mockReturnValue('## Session Memory\nsome note')
+    mockReadSessionMemory.mockReturnValue([
+      {
+        id: 'n1',
+        category: 'decision',
+        content: 'some note',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+    mockGetSessionMemoryForPrompt.mockReturnValue(
+      '## Session Memory\nsome note',
+    )
     mockIsSessionMemoryEmpty.mockReturnValue(false)
-    mockTruncateSessionMemoryForCompact.mockReturnValue({ wasTruncated: false, truncatedContent: '## Session Memory\nsome note' })
+    mockTruncateSessionMemoryForCompact.mockReturnValue({
+      wasTruncated: false,
+      truncatedContent: '## Session Memory\nsome note',
+    })
     mockGetLastSummarizedMessageId.mockReturnValue(undefined)
 
     const messages = [
@@ -330,10 +434,23 @@ describe('trySessionMemoryCompaction', () => {
 
   test('handles errors gracefully by returning null', () => {
     mockGetSessionId.mockReturnValue('session-123')
-    mockReadSessionMemory.mockReturnValue([{ id: 'n1', category: 'decision', content: 'some note', timestamp: new Date().toISOString() }])
-    mockGetSessionMemoryForPrompt.mockImplementation(() => { throw new Error('read error') })
+    mockReadSessionMemory.mockReturnValue([
+      {
+        id: 'n1',
+        category: 'decision',
+        content: 'some note',
+        timestamp: new Date().toISOString(),
+      },
+    ])
+    mockGetSessionMemoryForPrompt.mockImplementation(() => {
+      throw new Error('read error')
+    })
 
-    const messages = [systemMsg, makeTextMsg('user', 'hello'), makeTextMsg('assistant', 'hi')]
+    const messages = [
+      systemMsg,
+      makeTextMsg('user', 'hello'),
+      makeTextMsg('assistant', 'hi'),
+    ]
     const result = trySessionMemoryCompaction(messages)
     expect(result).toBeNull()
   })

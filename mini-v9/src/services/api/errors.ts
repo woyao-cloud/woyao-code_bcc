@@ -75,9 +75,15 @@ export function getPromptTooLongTokenGap(
   if (!Array.isArray(content)) return undefined
 
   for (const block of content) {
-    if (block.type === 'text' && block.text.startsWith(PROMPT_TOO_LONG_ERROR_MESSAGE)) {
-      const rawDetails = block.text.substring(PROMPT_TOO_LONG_ERROR_MESSAGE.length).trim()
-      const { actualTokens, limitTokens } = parsePromptTooLongTokenCounts(rawDetails)
+    if (
+      block.type === 'text' &&
+      block.text.startsWith(PROMPT_TOO_LONG_ERROR_MESSAGE)
+    ) {
+      const rawDetails = block.text
+        .substring(PROMPT_TOO_LONG_ERROR_MESSAGE.length)
+        .trim()
+      const { actualTokens, limitTokens } =
+        parsePromptTooLongTokenCounts(rawDetails)
       if (actualTokens !== undefined && limitTokens !== undefined) {
         const gap = actualTokens - limitTokens
         return gap > 0 ? gap : undefined
@@ -104,8 +110,7 @@ export function isMediaSizeErrorMessage(msg: BetaMessageParam): boolean {
   const content = msg.content
   if (!Array.isArray(content)) return false
   return content.some(
-    block =>
-      block.type === 'text' && isMediaSizeError(block.text),
+    block => block.type === 'text' && isMediaSizeError(block.text),
   )
 }
 
@@ -241,7 +246,8 @@ function createErrorContent(
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`
+  if (bytes >= 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)}MB`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`
   return `${bytes}B`
@@ -313,7 +319,9 @@ function isApiKeyError(err: unknown): boolean {
 
 function isAPIError(err: unknown): { status: number; message: string } | false {
   if (!(err instanceof Error)) return false
-  const status = (err as unknown as Record<string, unknown>).status as number | undefined
+  const status = (err as unknown as Record<string, unknown>).status as
+    | number
+    | undefined
   if (status !== undefined && typeof status === 'number') {
     return { status, message: err.message }
   }

@@ -17,7 +17,12 @@
  * Stages 3-4 are deterministic and can re-apply each turn.
  */
 
-import { estimateTokens, getEstimatedContextWindow, microcompactToolResults, compactMessages } from './autoCompact.js'
+import {
+  estimateTokens,
+  getEstimatedContextWindow,
+  microcompactToolResults,
+  compactMessages,
+} from './autoCompact.js'
 import { llmCompact } from './llmCompact.js'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
 
@@ -68,11 +73,46 @@ interface StageDef {
 }
 
 const STAGES: StageDef[] = [
-  { threshold: 0,   hotPairs: 0,  microcompact: false, useLlm: false, keepPairs: 0,  deterministic: true  }, // 0: no-op
-  { threshold: 50,  hotPairs: 8,  microcompact: false, useLlm: true,  keepPairs: 0,  deterministic: false }, // 1: LLM fold
-  { threshold: 65,  hotPairs: 5,  microcompact: true,  useLlm: true,  keepPairs: 0,  deterministic: false }, // 2: micro + LLM
-  { threshold: 80,  hotPairs: 4,  microcompact: true,  useLlm: false, keepPairs: 4,  deterministic: true  }, // 3: deterministic
-  { threshold: 92,  hotPairs: 2,  microcompact: true,  useLlm: false, keepPairs: 2,  deterministic: true  }, // 4: aggressive
+  {
+    threshold: 0,
+    hotPairs: 0,
+    microcompact: false,
+    useLlm: false,
+    keepPairs: 0,
+    deterministic: true,
+  }, // 0: no-op
+  {
+    threshold: 50,
+    hotPairs: 8,
+    microcompact: false,
+    useLlm: true,
+    keepPairs: 0,
+    deterministic: false,
+  }, // 1: LLM fold
+  {
+    threshold: 65,
+    hotPairs: 5,
+    microcompact: true,
+    useLlm: true,
+    keepPairs: 0,
+    deterministic: false,
+  }, // 2: micro + LLM
+  {
+    threshold: 80,
+    hotPairs: 4,
+    microcompact: true,
+    useLlm: false,
+    keepPairs: 4,
+    deterministic: true,
+  }, // 3: deterministic
+  {
+    threshold: 92,
+    hotPairs: 2,
+    microcompact: true,
+    useLlm: false,
+    keepPairs: 2,
+    deterministic: true,
+  }, // 4: aggressive
 ]
 
 // ============================================================
@@ -145,7 +185,9 @@ async function applyStage(
   }
 
   const applyCount = stageApplicationCount.get(stage) ?? 0
-  const maxApply = def.useLlm ? LLM_MAX_APPLICATIONS : MAX_APPLICATIONS_PER_STAGE
+  const maxApply = def.useLlm
+    ? LLM_MAX_APPLICATIONS
+    : MAX_APPLICATIONS_PER_STAGE
   if (applyCount >= maxApply) {
     return { didFold: false, stage: currentStage, usagePercent, messages }
   }
